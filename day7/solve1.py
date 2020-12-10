@@ -1,19 +1,9 @@
-from typing import List, Dict
+from typing import List, Dict, NamedTuple, Set
 
 
-class BagContainsStatement:
-    def __init__(self, name: str, amount: int):
-        self.name = name
-        self.amount = amount
-
-    def __str__(self):
-        return f"{self.amount} {self.name}"
-
-
-class Bag:
-    def __init__(self):
-        self.parents: List[int] = []
-        self.children: List[BagContainsStatement] = []
+class BagContainsStatement(NamedTuple):
+    name: str
+    amount: int
 
 
 class ParsedInputLine:
@@ -45,19 +35,41 @@ class ParsedInputLine:
 
 class BagSet:
     def __init__(self):
-        self.bags: Dict[str, Bag] = {}
+        self.bags: Dict[str, List[BagContainsStatement]] = {}
 
     def add(self, data: ParsedInputLine):
-        print(data)
+        if data.bag_name in self.bags:
+            print(f"warning - bag {data.bag_name} is already in the set")
+            return
+        self.bags[data.bag_name] = data.contain_list
+
+    def find_possible_parents(self, child: str) -> Set[str]:
+        return self._find_possible_parents_internal(child, {child})
+
+    def _find_possible_parents_internal(self, child: str, forbidden_parents: Set[str]) -> Set[str]:
+        possible_parents = set()
+        for bag_name, bag_children in self.bags.items():
+            if bag_name in forbidden_parents:
+                continue
+            if child in (c.name for c in bag_children):
+                possible_parents.add(bag_name)
+                forbidden_parents.add(bag_name)
+        parents1 = set()
+        for parent0 in possible_parents:
+            parents1 = parents1.union(self._find_possible_parents_internal(parent0, forbidden_parents))
+        possible_parents = possible_parents.union(parents1)
+        return possible_parents
 
 
 def main():
     bag_set = BagSet()
-    with open("data_small.txt") as f:
+    checked_bag = "shiny gold"
+    with open("data.txt") as f:
         for line in f:
             line = line.strip()
             parsed_line = ParsedInputLine(line)
             bag_set.add(parsed_line)
+    print(f"possible outermost parents of {checked_bag}: {len(bag_set.find_possible_parents(checked_bag))}")
 
 
 if __name__ == "__main__":
