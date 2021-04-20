@@ -63,14 +63,6 @@ class Space:
             # Bounds can be larger than they should, as they are only to simplify iteration (space is infinite).
             self.actives.remove(p)
 
-    def yield_all_points(self) -> Iterable[Point]:
-        for p in itertools.product(
-            range(self.lower.x, self.upper.x + 1, 1),
-            range(self.lower.y, self.upper.y + 1, 1),
-            range(self.lower.z, self.upper.z + 1, 1)
-        ):
-            yield Point(p[0], p[1], p[2])
-
     def yield_all_points_with_outliers(self) -> Iterable[Point]:
         for p in itertools.product(
                 range(self.lower.x - 1, self.upper.x + 2, 1),
@@ -84,12 +76,6 @@ class Space:
         for diff in itertools.product((-1, 0, 1), repeat=3):
             if diff != (0, 0, 0):
                 yield Point(p.x + diff[0], p.y + diff[1], p.z + diff[2])
-
-    def string(self, z: int) -> str:
-        return "\n".join(
-            "".join(self.get(Point(x, y, z)) for x in range(self.lower.x, self.upper.x + 1, 1))
-            for y in range(self.upper.y, self.lower.y - 1, -1)
-        )
 
     def count_active_neighbours(self, p: Point) -> int:
         return functools.reduce(operator.add, (1 if self.get(n) == ACTIVE else 0 for n in self.yield_point_neighbours(p)))
