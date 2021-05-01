@@ -185,13 +185,13 @@ class RPNParser:
 def main():
     parser = RPNParser()
     total = 0
-    with open("data_small.txt") as f:
+    with open("data.txt") as f:
         for line in f:
-            print(line.rstrip(), "-> ", end="")
+            # print(line.rstrip(), "-> ", end="")
             rpn = parser.parse(line)
             # print(" ".join(str(symbol) for symbol in rpn), "-> ", end="")
             result = Expression.execute_rpn(rpn)
-            print(result)
+            # print(result)
             total += result
     print(f"total: {total}")
 
