@@ -46,7 +46,7 @@ class Expression:
 
 class Operator:
     precedence = {
-        "*": 0,  # temporary for tests
+        "*": 1,
         "+": 1,
         "(": 2,
         ")": 2,
@@ -184,20 +184,16 @@ class RPNParser:
 
 def main():
     parser = RPNParser()
+    total = 0
     with open("data_small.txt") as f:
         for line in f:
             print(line.rstrip(), "-> ", end="")
             rpn = parser.parse(line)
-            print(" ".join(str(symbol) for symbol in rpn), "-> ", end="")
-            print(Expression.execute_rpn(rpn))
-    rpn_test = [
-        Expression.new_operand(2),
-        Expression.new_operand(3),
-        Expression.new_operand(4),
-        Expression.new_operator(Operator("*")),
-        Expression.new_operator(Operator("+"))
-    ]
-    print(f"test RPN execute: {Expression.execute_rpn(rpn_test)}")
+            # print(" ".join(str(symbol) for symbol in rpn), "-> ", end="")
+            result = Expression.execute_rpn(rpn)
+            print(result)
+            total += result
+    print(f"total: {total}")
 
 
 if __name__ == "__main__":
