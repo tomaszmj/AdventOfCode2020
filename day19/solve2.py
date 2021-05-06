@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import List, Dict, Set, NamedTuple
+import itertools
+from typing import List, Dict
 
 
 class Rule:
@@ -41,44 +42,6 @@ class Rule:
         return f'{self.index}: {" | ".join(str(chain) for chain in self.child_rules)}'
 
 
-class BacktrackingEntryKey(NamedTuple):
-    rulenum: int
-    text_to_parse: str
-
-
-class Backtracker:
-    def __init__(self):
-        self.choices: Dict[BacktrackingEntryKey, Set[int]] = {}
-        self.used_choices: Dict[BacktrackingEntryKey, Set[int]] = {}
-
-    def add_choice_if_not_used(self, entry: BacktrackingEntryKey, child_index: int):
-        if entry in self.used_choices:
-            if child_index in self.used_choices[entry]:
-                return
-        if entry not in self.choices:
-            self.choices[entry] = {child_index}
-        else:
-            self.choices[entry].add(child_index)
-
-    def has_choices(self, entry: BacktrackingEntryKey) -> bool:
-        return entry in self.choices
-
-    def has_any_choice(self):
-        return len(self.choices) > 0
-
-    def use_some_choice(self, entry: BacktrackingEntryKey) -> int:
-        l = len(self.choices[entry])
-        index = self.choices[entry].pop()
-        print(f"use_some_choice({entry}) returning {index}, out of {l} choices")
-        if len(self.choices[entry]) == 0:
-            del(self.choices[entry])
-        if entry not in self.used_choices:
-            self.used_choices[entry] = {index}
-        else:
-            self.used_choices[entry].add(index)
-        return index
-
-
 class Parser:
     def __init__(self):
         self.rules: Dict[int, Rule] = {}
@@ -89,24 +52,23 @@ class Parser:
         self.rules[rule.index] = rule
 
     def match(self, text: str) -> bool:
-        return self._backtracked_match(0, text)
-
-    def _backtracked_match(self, rulenum: int, text: str) -> bool:
-        backtracker = Backtracker()
-        ok, remaining_text = self._match(rulenum, text, backtracker)
-        if ok and len(remaining_text) == 0:
-            return True
-        while backtracker.has_any_choice():
-            input()
-            ok, remaining_text = self._match(rulenum, text, backtracker)
+        # According to puzzle description:
+        # 8: 42 | 42 8
+        # 11: 42 31 | 42 11 31
+        # To simplify parsing we remove loops by evaluating it to:
+        # 8: 42 | 42 42 | 42 42 42 | ... (until max_line_len)
+        # 11: 42 31 | 42 42 31 31 | 42 42 42 31 31 31 | ... (until max_line_len)
+        # We check all variants. This is a brutal hack.
+        for chain8_len, half_chain11_len in itertools.product(range(1, len(text)+1), range(1, len(text)//2 + 1)):
+            self.rules[8].child_rules = [[42]*chain8_len]
+            self.rules[11].child_rules = [[42]*half_chain11_len + [31]*half_chain11_len]
+            ok, remaining_text = self._match(0, text)
             if ok and len(remaining_text) == 0:
                 return True
         return False
 
     # if text matches given parser rule, returns True and remaining text (used in subsequent _match calls)
-    def _match(self, rulenum: int, text: str, backtracker: Backtracker) -> (bool, str):
-        backtracker_key = BacktrackingEntryKey(rulenum, text)
-        print(f"_match({rulenum}, {text}, backtracking choices len: {len(backtracker.choices)})")
+    def _match(self, rulenum: int, text: str) -> (bool, str):
         rule = self.rules[rulenum]
         # if rule is literal, return immediately without recursion
         if rule.literal:
@@ -115,72 +77,39 @@ class Parser:
             else:
                 return False, text
         # else, for each alternative rule chain check if it matches recursively
-        # some matches have already been checked in previous calls, so they will be rejected by backtracker
-        for i, _ in enumerate(rule.child_rules):
-            backtracker.add_choice_if_not_used(backtracker_key, i)
-        while backtracker.has_choices(backtracker_key):
-            child_chain_index = backtracker.use_some_choice(backtracker_key)
-            ok, remaining_text = self._match_rule_chain(rule.child_rules[child_chain_index], text, backtracker)
+        for alternative in rule.child_rules:
+            ok, remaining_text = self._match_rule_chain(alternative, text)
             if ok:
                 return True, remaining_text
+        # if we get here, none of the alternatives matched
         return False, text
 
     # check if text matches all rules specified in the chain (concatenated one after another)
-    def _match_rule_chain(self, rulenums: List[int], text, backtracker: Backtracker) -> (bool, str):
+    def _match_rule_chain(self, rulenums: List[int], text) -> (bool, str):
         remaining_text = text
         for num in rulenums:
-            ok, remaining_text = self._match(num, remaining_text, backtracker)
+            ok, remaining_text = self._match(num, remaining_text)
             if ok:
                 text = remaining_text
             else:
                 return False, text
         return True, remaining_text
 
-    # def generate_possible_matches(self, rulenum: int) -> List[str]:
-    #     return self._generate_possible_matches(rulenum, "", set())
-    #
-    # def _generate_possible_matches(self, rulenum: int, got_text: str, open_calls: Set[int]) -> List[str]:
-    #     if rulenum in open_calls:
-    #         raise RuntimeError(f"infinite recursion detected when generation possible matches for rule {rulenum}")
-    #     open_calls.add(rulenum)
-    #     rule = self.rules[rulenum]
-    #     if rule.literal:
-    #         open_calls.remove(rulenum)
-    #         return [got_text + rule.literal]
-    #     possible_evaluations = []
-    #     for alternative in rule.child_rules:
-    #         current_text = got_text
-    #         for chain_rule_num in alternative:
-    #             possibilities = self._generate_possible_matches(chain_rule_num, current_text, open_calls)
-                # chain_element_evaluation = current_text + possibility
-
-    # def _generate_chain_possible_matches(self, rulenum: int, got_text: str, open_calls: Set[int]) -> List[str]:
-
 
 def main():
     parser = Parser()
-    matches = 0
-    with open("data_small2.txt") as f:
+    lines_to_be_parsed = []
+    with open("data.txt") as f:
         line = f.readline().strip()
         while line:
             rule = Rule(line)
-            if rule.index == 8:
-                rule = Rule("8: 42 | 42 8")
-            elif rule.index == 11:
-                rule = Rule("11: 42 31 | 42 11 31")
-            # print(rule)
             parser.add_rule(rule)
             line = f.readline().strip()
         line = f.readline().strip()
         while line:
-            print(f"{line} -> ", end="")
-            if parser.match(line):
-                matches += 1
-                print("ok")
-            else:
-                print("no")
+            lines_to_be_parsed.append(line)
             line = f.readline().strip()
-    print(f"matches: {matches}")
+    print(f"matches: {sum(1 if parser.match(line) else 0 for line in lines_to_be_parsed)}")
 
 
 if __name__ == "__main__":
