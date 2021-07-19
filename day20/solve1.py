@@ -5,32 +5,26 @@ from typing import Dict, List, NamedTuple, Set
 class Tile:
     def __init__(self, text: List[str]):
         # Borders of tile, starting at upper left corner, going clockwise:
-        # up in direction left->right
-        # right in direction up->down
-        # down in direction right->left
-        # left in direction down->up
-        self._borders = [
-            text[0],
-            "".join((t[-1] for t in text)),  # last character from each line
-            text[-1][::-1],  # reversed last line
-            "".join((t[0] for t in reversed(text))),  # first character from each line, reversed because we start from bottom
-        ]
+        self.up = list(text[0])  # up in direction left->right - first line
+        self.right = list((t[-1] for t in text))  # right in direction up->down - last character from each line
+        self.down = list(text[-1])  # down in direction left->right - last line
+        self.left = list((t[0] for t in text))  # left in direction up->down - first character from each line
 
-    # up, right, down, left are getters for tile borders
-    # They take rotation as parameter so that Tile can be viewed as rotated without being modified
-    # rotation is number of clockwise rotations by 1, i.e. rotation=1 transforms up to right, right to down etc.
+    # rotates tile clockwise once
+    def rotate(self):
+        self.up, self.right, self.down, self.left = self.left, self.up, self.right, self.down
+        self.up.reverse()
+        self.down.reverse()
 
-    def up(self, rotation=0) -> str:
-        return self._borders[(0 - rotation) % 4]
+    def flip_up_down(self):
+        self.up, self.down = self.down, self.up
+        self.left.reverse()
+        self.right.reverse()
 
-    def right(self, rotation=0) -> str:
-        return self._borders[(1 - rotation) % 4]
-
-    def down(self, rotation=0) -> str:
-        return self._borders[(2 - rotation) % 4]
-
-    def left(self, rotation=0) -> str:
-        return self._borders[(3 - rotation) % 4]
+    def flip_left_right(self):
+        self.left, self.right = self.right, self.left
+        self.up.reverse()
+        self.down.reverse()
 
 
 class TileDescriptor(NamedTuple):
@@ -132,14 +126,27 @@ def main():
             if line:
                 raise ValueError(f"expected empty line, got {line}")
             line = f.readline().strip()
-    # t = tiles[2311]
+    t = tiles[2311]
+    u, r, d, l = t.up.copy(), t.right.copy(), t.down.copy(), t.left.copy()
+    t.flip_up_down()
+    t.flip_up_down()
+    if (u, r, d, l) == (t.up, t.right, t.down, t.left):
+        print("flip_up_down :)")
+    t.flip_left_right()
+    t.flip_left_right()
+    if (u, r, d, l) == (t.up, t.right, t.down, t.left):
+        print("flip_left_right :)")
+    for _ in range(4):
+        t.rotate()
+    if (u, r, d, l) == (t.up, t.right, t.down, t.left):
+        print("flip_left_right :)")
     # full_text = "\n".join(t.text)
     # print(f"full text:\n{full_text}")
     # for rot in range(5):
     #     print(f"\nrotation {rot}\nup: {t.up(rot)}\nright: {t.right(rot)}\ndown: {t.down(rot)}\nleft: {t.left(rot)}")
-    image = Image(tiles)
-    chosen_tiles = image.solve()
-    print(f"solution [{Image.chosen_tiles_to_string(chosen_tiles)}]")
+    # image = Image(tiles)
+    # chosen_tiles = image.solve()
+    # print(f"solution [{Image.chosen_tiles_to_string(chosen_tiles)}]")
 
 
 if __name__ == "__main__":
