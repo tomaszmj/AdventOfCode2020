@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import math
-from typing import Dict, List, NamedTuple, Set
+from typing import List, Set, Iterable
 
 
 class Tile:
-    def __init__(self, text: List[str]):
-        # Borders of tile, starting at upper left corner, going clockwise:
+    def __init__(self, text: List[str], number: int):
+        self.number = number
         self.up = list(text[0])  # up in direction left->right - first line
         self.right = list((t[-1] for t in text))  # right in direction up->down - last character from each line
         self.down = list(text[-1])  # down in direction left->right - last line
@@ -26,10 +28,19 @@ class Tile:
         self.up.reverse()
         self.down.reverse()
 
-
-class TileDescriptor(NamedTuple):
-    number: int
-    rotation: int
+    def yield_all_transformations(self) -> Iterable[Tile]:
+        for rotation in range(4):  # for each rotation
+            yield self  # without flipping
+            self.flip_left_right()
+            yield self  # with flip_left_right
+            self.flip_left_right()  # reverts flip_left_right
+            self.flip_up_down()
+            yield self  # with flip_up_down
+            self.flip_left_right()
+            yield self  # with flip_up_down and flip_left_right
+            self.flip_left_right()  # reverts flip_left_right
+            self.flip_up_down()  # reverts flip_up_down
+            self.rotate()  # go to next rotation - or (in case of last iteration) reset to original rotation
 
 
 class ListToMatrixIndexer:
@@ -45,72 +56,76 @@ class ListToMatrixIndexer:
         x = list_index % self.width
         return x, y
 
+    def indices_of_matrix_corners(self) -> List[int]:
+        return [
+            0,
+            self.list_index(self.width - 1, 0),
+            self.list_index(0, self.height - 1),
+            self.list_index(self.width - 1, self.height - 1),
+        ]
+
 
 class Image:
-    def __init__(self, tiles: Dict[int, Tile]):
+    def __init__(self, tiles: List[Tile]):
         self.all_tiles = tiles
         size = int(math.sqrt(len(tiles)))
         if size ** 2 != len(tiles):
             raise ValueError(f"number of tiles {len(tiles)} is not a square of natural number")
         self.indexer = ListToMatrixIndexer(size, size)
 
-    # solve will try to put all tiles to their places so that they math.
-    # It returns list of chosen tile descriptors (number, rotation) on success, empty list on failure
-    def solve(self) -> List[TileDescriptor]:
-        chosen_tiles: List[TileDescriptor] = []
+    # solve will try to put all tiles to their places so that they match.
+    # It returns list of chosen tiles on success, empty list on failure
+    def solve(self) -> List[Tile]:
+        chosen_tiles: List[Tile] = []
         if self._solve(chosen_tiles, set()):
             return chosen_tiles
         return []
 
-    def _solve(self, chosen_tiles: List[TileDescriptor], chosen_numbers_set: Set[int]) -> bool:
-        print(f"_solve({self.chosen_tiles_to_string(chosen_tiles)}) ...")
+    def _solve(self, chosen_tiles: List[Tile], chosen_numbers_set: Set[int]) -> bool:
+        # print(f"_solve({self.chosen_tiles_to_string(chosen_tiles)}) ...")
         if len(chosen_tiles) == len(self.all_tiles):
             return True
         # We iterate over all possible tiles numbers, filtered by chosen_numbers_set instead of just
         # using available numbers set, because we cannot add/remove items to the set while iterating over it
-        for tile_number in self.all_tiles.keys():
-            if tile_number in chosen_numbers_set:
+        for tile in self.all_tiles:
+            if tile.number in chosen_numbers_set:
                 continue
-            chosen_numbers_set.add(tile_number)
-            for rotation in range(4):
-                new_tile_descriptor = TileDescriptor(tile_number, rotation)
-                if self.new_tile_matches(chosen_tiles, new_tile_descriptor):
-                    chosen_tiles.append(new_tile_descriptor)
+            chosen_numbers_set.add(tile.number)
+            for tt in tile.yield_all_transformations():
+                if self.new_tile_matches(chosen_tiles, tt):
+                    chosen_tiles.append(tt)
                     if self._solve(chosen_tiles, chosen_numbers_set):
                         return True
                     chosen_tiles.pop()
-            chosen_numbers_set.remove(tile_number)
+            chosen_numbers_set.remove(tile.number)
         return False
 
-    def new_tile_matches(self, chosen_tiles: List[TileDescriptor], new_tile_descriptor: TileDescriptor) -> bool:
+    def new_tile_matches(self, chosen_tiles: List[Tile], new_tile: Tile) -> bool:
         new_x, new_y = self.indexer.coordinates(len(chosen_tiles))
-        new_tile = self.all_tiles[new_tile_descriptor.number]
         if new_x > 0:
             left_neighbour_index = self.indexer.list_index(new_x - 1, new_y)
             left_neighbour = chosen_tiles[left_neighbour_index]
-            left_neighbour_right_border = self.all_tiles[left_neighbour.number].right(left_neighbour.rotation)
-            new_tile_left_border = new_tile.left(new_tile_descriptor.rotation)
-            # left border is up->down oriented, right border is down->up, so check if borders are equal in reversed order
-            if new_tile_left_border[::-1] != left_neighbour_right_border:
+            if left_neighbour.right != new_tile.left:
                 return False
         if new_y > 0:
             up_neighbour_index = self.indexer.list_index(new_x, new_y - 1)
             up_neighbour = chosen_tiles[up_neighbour_index]
-            up_neighbour_down_border = self.all_tiles[up_neighbour.number].down(up_neighbour.rotation)
-            new_tile_up_border = new_tile.up(new_tile_descriptor.rotation)
-            # up border is left->right oriented, down border is right->left, so check if borders are equal in reversed order
-            if new_tile_up_border[::-1] != up_neighbour_down_border:
+            if up_neighbour.down != new_tile.up:
                 return False
         # we are putting new tiles left-to-right, up-down, so new tile will never have neighbours right or down
         return True
 
+    # returns multiplied IDs of the four corner tiles, required as puzzle answer
+    def magic_number(self, chosen_tiles: List[Tile]) -> int:
+        return math.prod((chosen_tiles[i].number for i in self.indexer.indices_of_matrix_corners()))
+
     @staticmethod
-    def chosen_tiles_to_string(chosen_tiles: List[TileDescriptor]) -> str:
-        return " ".join(f"{c.number},{c.rotation}" for c in chosen_tiles)
+    def chosen_tiles_to_string(chosen_tiles: List[Tile]) -> str:
+        return " ".join(f"{c.number}" for c in chosen_tiles)
 
 
 def main():
-    tiles: Dict[int, Tile] = {}
+    tiles: List[Tile] = []
     with open("data_small.txt") as f:
         line = f.readline().strip()
         while line:
@@ -121,32 +136,18 @@ def main():
             for i in range(10):
                 line = f.readline().strip()
                 data.append(line)
-            tiles[number] = Tile(data)
+            tiles.append(Tile(data, number))
             line = f.readline().strip()
             if line:
                 raise ValueError(f"expected empty line, got {line}")
             line = f.readline().strip()
-    t = tiles[2311]
-    u, r, d, l = t.up.copy(), t.right.copy(), t.down.copy(), t.left.copy()
-    t.flip_up_down()
-    t.flip_up_down()
-    if (u, r, d, l) == (t.up, t.right, t.down, t.left):
-        print("flip_up_down :)")
-    t.flip_left_right()
-    t.flip_left_right()
-    if (u, r, d, l) == (t.up, t.right, t.down, t.left):
-        print("flip_left_right :)")
-    for _ in range(4):
-        t.rotate()
-    if (u, r, d, l) == (t.up, t.right, t.down, t.left):
-        print("flip_left_right :)")
-    # full_text = "\n".join(t.text)
-    # print(f"full text:\n{full_text}")
-    # for rot in range(5):
-    #     print(f"\nrotation {rot}\nup: {t.up(rot)}\nright: {t.right(rot)}\ndown: {t.down(rot)}\nleft: {t.left(rot)}")
-    # image = Image(tiles)
-    # chosen_tiles = image.solve()
-    # print(f"solution [{Image.chosen_tiles_to_string(chosen_tiles)}]")
+    print(f"solving for {len(tiles)} tiles...")
+    image = Image(tiles)
+    chosen_tiles = image.solve()
+    if chosen_tiles:
+        print(f"solution {image.magic_number(chosen_tiles)}")
+    else:
+        print("could not find solution :(")
 
 
 if __name__ == "__main__":
