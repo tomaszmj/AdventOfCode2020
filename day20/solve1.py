@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 import math
+import copy
 from typing import List, Set, Iterable
+from dataclasses import dataclass
+
+
+@dataclass
+class TileTransformation:
+    rotation: int = 0
+    flip_up_down: int = 0
+    flip_left_right: int = 0
 
 
 class Tile:
@@ -11,22 +20,34 @@ class Tile:
         self.right = list((t[-1] for t in text))  # right in direction up->down - last character from each line
         self.down = list(text[-1])  # down in direction left->right - last line
         self.left = list((t[0] for t in text))  # left in direction up->down - first character from each line
+        self.transformation = TileTransformation()
 
     # rotates tile clockwise once
     def rotate(self):
         self.up, self.right, self.down, self.left = self.left, self.up, self.right, self.down
         self.up.reverse()
         self.down.reverse()
+        self.transformation.rotation = (self.transformation.rotation + 1) % 4
 
     def flip_up_down(self):
         self.up, self.down = self.down, self.up
         self.left.reverse()
         self.right.reverse()
+        self.transformation.flip_up_down = (self.transformation.flip_up_down + 1) % 2
 
     def flip_left_right(self):
         self.left, self.right = self.right, self.left
         self.up.reverse()
         self.down.reverse()
+        self.transformation.flip_left_right = (self.transformation.flip_left_right + 1) % 2
+
+    def set_transformation(self, transformation: TileTransformation):
+        while self.transformation.rotation != transformation.rotation:
+            self.rotate()
+        if self.transformation.flip_up_down != transformation.flip_up_down:
+            self.flip_up_down()
+        if self.transformation.flip_left_right != transformation.flip_left_right:
+            self.flip_left_right()
 
     def yield_all_transformations(self) -> Iterable[Tile]:
         for rotation in range(4):  # for each rotation
@@ -126,7 +147,7 @@ class Image:
 
 def main():
     tiles: List[Tile] = []
-    with open("data_small.txt") as f:
+    with open("data.txt") as f:
         line = f.readline().strip()
         while line:
             if line[:4] != "Tile":
@@ -141,13 +162,25 @@ def main():
             if line:
                 raise ValueError(f"expected empty line, got {line}")
             line = f.readline().strip()
-    print(f"solving for {len(tiles)} tiles...")
-    image = Image(tiles)
-    chosen_tiles = image.solve()
-    if chosen_tiles:
-        print(f"solution {image.magic_number(chosen_tiles)}")
-    else:
-        print("could not find solution :(")
+
+    # simple test of set_transformation
+    t1 = tiles[0]
+    t2 = copy.deepcopy(t1)
+    for i, tt in enumerate(t1.yield_all_transformations()):
+        if i in [0, 1, 3, 5, 6, 7, 11, 12, 15]:
+            t2.set_transformation(tt.transformation)
+            if (tt.up, tt.right, tt.down, tt.left) == (t2.up, t2.right, t2.down, t2.left):
+                print(f"{i} ok :)")
+            else:
+                print(f"{i} bad :(")
+
+    # print(f"solving for {len(tiles)} tiles...")
+    # image = Image(tiles)
+    # chosen_tiles = image.solve()
+    # if chosen_tiles:
+    #     print(f"solution {image.magic_number(chosen_tiles)}")
+    # else:
+    #     print("could not find solution :(")
 
 
 if __name__ == "__main__":
