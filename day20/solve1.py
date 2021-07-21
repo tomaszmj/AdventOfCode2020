@@ -119,21 +119,25 @@ class TileNeighbourhoodManager:
                             self.down_successors[tt1_state] = set()
                         self.down_successors[tt1_state].add(tt2_state)
 
-    def possible_new_tiles(self, left_neighbour: Tile, up_neighbour: Tile) -> Iterable[TileSelection]:
+    def possible_new_tiles(self, left_neighbour: Tile, up_neighbour: Tile, chosen_numbers_set: Set[int]) -> Iterable[TileSelection]:
         if left_neighbour and up_neighbour:
             left_candidates = self.right_successors_per_tile(left_neighbour)
             up_candidates = self.down_successors_per_tile(up_neighbour)
             for selection in left_candidates.intersection(up_candidates):
-                yield selection
+                if selection.number not in chosen_numbers_set:
+                    yield selection
         elif left_neighbour:
             for selection in self.right_successors_per_tile(left_neighbour):
-                yield selection
+                if selection.number not in chosen_numbers_set:
+                    yield selection
         elif up_neighbour:
             for selection in self.down_successors_per_tile(up_neighbour):
-                yield selection
+                if selection.number not in chosen_numbers_set:
+                    yield selection
         else:  # no neighbours - yield all possible transformations of all tiles
-            for n, transformation_hash in itertools.product(self.all_tile_numbers, range(16)):
-                yield TileSelection(n, TileTransformation.from_hash(transformation_hash))
+            for tile_number, transformation_hash in itertools.product(
+                    filter(lambda n: n not in chosen_numbers_set, self.all_tile_numbers), range(16)):
+                yield TileSelection(tile_number, TileTransformation.from_hash(transformation_hash))
 
     def right_successors_per_tile(self, tile: Tile) -> Set[TileSelection]:
         key = TileSelection(tile.number, tile.transformation)
@@ -201,9 +205,7 @@ class Image:
         new_x, new_y = self.indexer.coordinates(len(chosen_tiles))
         left_neighbour = chosen_tiles[self.indexer.list_index(new_x - 1, new_y)] if new_x > 0 else None
         up_neighbour = chosen_tiles[self.indexer.list_index(new_x, new_y - 1)] if new_y > 0 else None
-        for selection in neighbourhood_manager.possible_new_tiles(left_neighbour, up_neighbour):
-            if selection.number in chosen_numbers_set:
-                continue
+        for selection in neighbourhood_manager.possible_new_tiles(left_neighbour, up_neighbour, chosen_numbers_set):
             # print(f"solving ({self.chosen_tiles_to_string(chosen_tiles)}) - "
             #       f"selection {selection.number},{selection.transformation.__hash__()}")
             # select tile - neighbourhood_manager already guarantees that it will match
