@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import itertools
 import math
-import copy
-from typing import List, Set, Iterable, Dict
+from typing import List, Set, Iterable, Dict, Tuple
 from dataclasses import dataclass
+
+
+def safe_add_to_dict_of_sets(dictionary: Dict[object, Set[object]], key, value):
+    if key not in dictionary:
+        dictionary[key] = set()
+    dictionary[key].add(value)
 
 
 @dataclass
@@ -97,143 +102,41 @@ class TileSelection:
 
 class TileNeighbourhoodManager:
     def __init__(self, tiles: Iterable[Tile]):
-        # map tile number to set of possible tile numbers next to given tile
-        self.right_successors: Dict[TileSelection, Set[TileSelection]] = {}
-        self.down_successors: Dict[TileSelection, Set[TileSelection]] = {}
         self.all_tile_numbers = list(t.number for t in tiles)
+        print("precomputing neighbourhood")
+        # print(f"precomputing neighbourhood by checking all pairs of (tile, transformation) -"
+        #       f" {len(self.all_tile_numbers)*(len(self.all_tile_numbers)-1)*256} checks ...")
+        # possible_neighbours maps tile number to set of possible neighbours, no matter how transformed
+        self.possible_neighbours: Dict[int, Set[int]] = {}
         for t1, t2 in itertools.product(tiles, repeat=2):
             if t1.number == t2.number:
                 continue
-            for tt1 in t1.yield_all_transformations():
-                for tt2 in t2.yield_all_transformations():
-                    if tt1.right == tt2.left:  # tt2 in current state might be left to tt1
-                        tt1_state = TileSelection(tt1.number, copy.deepcopy(tt1.transformation))
-                        tt2_state = TileSelection(tt2.number, copy.deepcopy(tt2.transformation))
-                        if tt1_state not in self.right_successors:
-                            self.right_successors[tt1_state] = set()
-                        self.right_successors[tt1_state].add(tt2_state)
-                    if tt1.down == tt2.up:  # tt2 in current state might be under tt1
-                        tt1_state = TileSelection(tt1.number, copy.deepcopy(tt1.transformation))
-                        tt2_state = TileSelection(tt2.number, copy.deepcopy(tt2.transformation))
-                        if tt1_state not in self.down_successors:
-                            self.down_successors[tt1_state] = set()
-                        self.down_successors[tt1_state].add(tt2_state)
+            self.save_neighbourhood_data(t1, t2)
+        print("created TileNeighbourhoodManager")
 
-    def possible_new_tiles(self, left_neighbour: Tile, up_neighbour: Tile, chosen_numbers_set: Set[int]) -> Iterable[TileSelection]:
-        if left_neighbour and up_neighbour:
-            left_candidates = self.right_successors_per_tile(left_neighbour)
-            up_candidates = self.down_successors_per_tile(up_neighbour)
-            for selection in left_candidates.intersection(up_candidates):
-                if selection.number not in chosen_numbers_set:
-                    yield selection
-        elif left_neighbour:
-            for selection in self.right_successors_per_tile(left_neighbour):
-                if selection.number not in chosen_numbers_set:
-                    yield selection
-        elif up_neighbour:
-            for selection in self.down_successors_per_tile(up_neighbour):
-                if selection.number not in chosen_numbers_set:
-                    yield selection
-        else:  # no neighbours - yield all possible transformations of all tiles
-            for tile_number, transformation_hash in itertools.product(
-                    filter(lambda n: n not in chosen_numbers_set, self.all_tile_numbers), range(16)):
-                yield TileSelection(tile_number, TileTransformation.from_hash(transformation_hash))
+    def save_neighbourhood_data(self, t1: Tile, t2: Tile):
+        for tt1 in t1.yield_all_transformations():
+            for tt2 in t2.yield_all_transformations():
+                if tt1.right == tt2.left:  # tt2 in current state might be left to tt1
+                    safe_add_to_dict_of_sets(self.possible_neighbours, tt1.number, tt2.number)
+                    safe_add_to_dict_of_sets(self.possible_neighbours, tt2.number, tt1.number)
+                    return
+                if tt1.down == tt2.up:  # tt2 in current state might be under tt1
+                    safe_add_to_dict_of_sets(self.possible_neighbours, tt1.number, tt2.number)
+                    safe_add_to_dict_of_sets(self.possible_neighbours, tt2.number, tt1.number)
+                    return
 
-    def right_successors_per_tile(self, tile: Tile) -> Set[TileSelection]:
-        key = TileSelection(tile.number, tile.transformation)
-        if key not in self.right_successors:
-            return set()
-        return self.right_successors[key]
-
-    def down_successors_per_tile(self, tile: Tile) -> Set[TileSelection]:
-        key = TileSelection(tile.number, tile.transformation)
-        if key not in self.down_successors:
-            return set()
-        return self.down_successors[key]
-
-
-class ListToMatrixIndexer:
-    def __init__(self, width: int, height: int):
-        self.width = width
-        self.height = height
-
-    def list_index(self, x: int, y: int) -> int:
-        return y * self.width + x
-
-    def coordinates(self, list_index: int) -> (int, int):
-        y = list_index // self.width
-        x = list_index % self.width
-        return x, y
-
-    def indices_of_matrix_corners(self) -> List[int]:
-        return [
-            0,
-            self.list_index(self.width - 1, 0),
-            self.list_index(0, self.height - 1),
-            self.list_index(self.width - 1, self.height - 1),
-        ]
-
-
-class Image:
-    def __init__(self, tiles: List[Tile]):
-        self.all_tiles: Dict[int, Tile] = {}
-        for t in tiles:
-            self.all_tiles[t.number] = t
-        size = int(math.sqrt(len(tiles)))
-        if size ** 2 != len(tiles):
-            raise ValueError(f"number of tiles {len(tiles)} is not a square of natural number")
-        self.indexer = ListToMatrixIndexer(size, size)
-
-    # solve will try to put all tiles to their places so that they match.
-    # It returns list of chosen tiles on success, empty list on failure
-    def solve(self) -> List[Tile]:
-        print(f"precomputing neighbourhood by checking all pairs of (tile, transformation) -"
-              f" {len(self.all_tiles)*(len(self.all_tiles)-1)*256} checks ...")
-        neighbourhood_manager = TileNeighbourhoodManager(self.all_tiles.values())
-        print(f"created TileNeighbourhoodManager with {len(neighbourhood_manager.right_successors)} right "
-              f"successors and {len(neighbourhood_manager.down_successors)} down successors")
-        chosen_tiles: List[Tile] = []
-        print(f"solving by backtracking for {len(self.all_tiles)} tiles ...")
-        if self._solve(chosen_tiles, set(), neighbourhood_manager):
-            return chosen_tiles
-        return []
-
-    def _solve(self, chosen_tiles: List[Tile], chosen_numbers_set: Set[int],
-               neighbourhood_manager: TileNeighbourhoodManager) -> bool:
-        if len(chosen_tiles) == len(self.all_tiles):
-            return True
-        new_x, new_y = self.indexer.coordinates(len(chosen_tiles))
-        left_neighbour = chosen_tiles[self.indexer.list_index(new_x - 1, new_y)] if new_x > 0 else None
-        up_neighbour = chosen_tiles[self.indexer.list_index(new_x, new_y - 1)] if new_y > 0 else None
-        for selection in neighbourhood_manager.possible_new_tiles(left_neighbour, up_neighbour, chosen_numbers_set):
-            # print(f"solving ({self.chosen_tiles_to_string(chosen_tiles)}) - "
-            #       f"selection {selection.number},{selection.transformation.__hash__()}")
-            # select tile - neighbourhood_manager already guarantees that it will match
-            tile = self.all_tiles[selection.number]
-            old_transformation = copy.deepcopy(tile.transformation)
-            chosen_numbers_set.add(tile.number)
-            tile.set_transformation(selection.transformation)
-            chosen_tiles.append(tile)
-            if self._solve(chosen_tiles, chosen_numbers_set, neighbourhood_manager):
-                return True
-            # recursive _solve failed - backtrack ...
-            chosen_tiles.pop()
-            tile.set_transformation(old_transformation)
-            chosen_numbers_set.remove(tile.number)
-        return False
-
-    # returns multiplied IDs of the four corner tiles, required as puzzle answer
-    def magic_number(self, chosen_tiles: List[Tile]) -> int:
-        return math.prod((chosen_tiles[i].number for i in self.indexer.indices_of_matrix_corners()))
-
-    @staticmethod
-    def chosen_tiles_to_string(chosen_tiles: List[Tile]) -> str:
-        return " ".join(f"{c.number},{c.transformation.__hash__()}" for c in chosen_tiles)
+    def neighbours_len_stats(self) -> List[Tuple[int, int]]:
+        neighbours_len = []
+        for n, s in self.possible_neighbours.items():
+            neighbours_len.append((n, len(s)))
+        neighbours_len.sort(key=lambda nn: nn[1])
+        return neighbours_len
 
 
 def main():
     tiles: List[Tile] = []
-    with open("data_small.txt") as f:
+    with open("data.txt") as f:
         line = f.readline().strip()
         while line:
             if line[:4] != "Tile":
@@ -248,13 +151,15 @@ def main():
             if line:
                 raise ValueError(f"expected empty line, got {line}")
             line = f.readline().strip()
-    print(f"solving for {len(tiles)} tiles...")
-    image = Image(tiles)
-    chosen_tiles = image.solve()
-    if chosen_tiles:
-        print(f"solution {image.magic_number(chosen_tiles)}")
-    else:
-        print("could not find solution :(")
+    neighbourhood_manager = TileNeighbourhoodManager(tiles)
+    neighbours_len = neighbourhood_manager.neighbours_len_stats()
+    print("tiles with smallest number of possible neighbours:")
+    for i in range(min(len(neighbours_len), 5)):
+        print(f"{neighbours_len[i][0]}: {neighbours_len[i][1]}")
+    print("...\n")
+    # Checked experimentally that there are only 4 tiles with 2 possible neighbours ... so they must be corners!
+    # BTW, I do not like such puzzles that have solution depending on specific dataset properties.
+    print(f"solution: {math.prod(n[0] for n in neighbours_len[:4])}")
 
 
 if __name__ == "__main__":
