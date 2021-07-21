@@ -186,21 +186,9 @@ class Image:
         print(f"precomputing neighbourhood by checking all pairs of (tile, transformation) -"
               f" {len(self.all_tiles)*(len(self.all_tiles)-1)*256} checks ...")
         neighbourhood_manager = TileNeighbourhoodManager(self.all_tiles.values())
+        print(f"created TileNeighbourhoodManager with {len(neighbourhood_manager.right_successors)} right "
+              f"successors and {len(neighbourhood_manager.down_successors)} down successors")
         chosen_tiles: List[Tile] = []
-        # print("neighbourhood_manager possible new tiles test:")
-        # print(f"no constraints: {len(list(neighbourhood_manager.possible_new_tiles(None, None)))}")
-        # tile = self.all_tiles[1951]
-        # for trans in range(16):
-        #     tile.set_transformation(TileTransformation.from_hash(trans))
-        #     print(f"for tile {tile.number},{tile.transformation.__hash__()}: "
-        #           f"{list(neighbourhood_manager.possible_new_tiles(tile, None))}\n")
-        # print("all right successors:")
-        # for key, value in neighbourhood_manager.right_successors.items():
-        #     print(f"{key}: {list(value)}")
-        # print("all down successors:")
-        # for key, value in neighbourhood_manager.down_successors.items():
-        #     print(f"{key}: {list(value)}")
-        # return []
         print(f"solving by backtracking for {len(self.all_tiles)} tiles ...")
         if self._solve(chosen_tiles, set(), neighbourhood_manager):
             return chosen_tiles
@@ -210,43 +198,27 @@ class Image:
                neighbourhood_manager: TileNeighbourhoodManager) -> bool:
         if len(chosen_tiles) == len(self.all_tiles):
             return True
-        # We iterate over all possible tiles numbers, filtered by chosen_numbers_set instead of just
-        # using available numbers set, because we cannot add/remove items to the set while iterating over it
         new_x, new_y = self.indexer.coordinates(len(chosen_tiles))
         left_neighbour = chosen_tiles[self.indexer.list_index(new_x - 1, new_y)] if new_x > 0 else None
         up_neighbour = chosen_tiles[self.indexer.list_index(new_x, new_y - 1)] if new_y > 0 else None
         for selection in neighbourhood_manager.possible_new_tiles(left_neighbour, up_neighbour):
             if selection.number in chosen_numbers_set:
                 continue
-            chosen_numbers_set.add(selection.number)
-            tile = copy.deepcopy(self.all_tiles[selection.number])
+            # print(f"solving ({self.chosen_tiles_to_string(chosen_tiles)}) - "
+            #       f"selection {selection.number},{selection.transformation.__hash__()}")
+            # select tile - neighbourhood_manager already guarantees that it will match
+            tile = self.all_tiles[selection.number]
+            old_transformation = copy.deepcopy(tile.transformation)
+            chosen_numbers_set.add(tile.number)
             tile.set_transformation(selection.transformation)
-            print(f"solving ({self.chosen_tiles_to_string(chosen_tiles)}) - "
-                  f"selection {tile.number},{selection.transformation.__hash__()}")
-            if not self.new_tile_matches(chosen_tiles, tile):
-                raise RuntimeError(f"something went wrong adding {selection.number},{selection.transformation} to "
-                                   f"chosen [{self.chosen_tiles_to_string(chosen_tiles)}]")
             chosen_tiles.append(tile)
             if self._solve(chosen_tiles, chosen_numbers_set, neighbourhood_manager):
                 return True
+            # recursive _solve failed - backtrack ...
             chosen_tiles.pop()
+            tile.set_transformation(old_transformation)
             chosen_numbers_set.remove(tile.number)
         return False
-
-    def new_tile_matches(self, chosen_tiles: List[Tile], new_tile: Tile) -> bool:
-        new_x, new_y = self.indexer.coordinates(len(chosen_tiles))
-        if new_x > 0:
-            left_neighbour_index = self.indexer.list_index(new_x - 1, new_y)
-            left_neighbour = chosen_tiles[left_neighbour_index]
-            if left_neighbour.right != new_tile.left:
-                return False
-        if new_y > 0:
-            up_neighbour_index = self.indexer.list_index(new_x, new_y - 1)
-            up_neighbour = chosen_tiles[up_neighbour_index]
-            if up_neighbour.down != new_tile.up:
-                return False
-        # we are putting new tiles left-to-right, up-down, so new tile will never have neighbours right or down
-        return True
 
     # returns multiplied IDs of the four corner tiles, required as puzzle answer
     def magic_number(self, chosen_tiles: List[Tile]) -> int:
