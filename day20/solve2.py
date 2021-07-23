@@ -3,11 +3,19 @@ from __future__ import annotations
 import itertools
 import math
 import copy
-from typing import List, Set, Iterable, Dict, NamedTuple
+from typing import List, Set, Iterable, Dict, NamedTuple, Tuple
 from dataclasses import dataclass
 
 
+HALF_TILE_LEN = 5
+
+
 class Matrix2x2:
+    # all_transformations will be filled in by precompute_transformations.
+    # This is list of all possible tile transformations in this puzzle:
+    # combined rotations and flipping in 2 axes.
+    all_transformations: List[Matrix2x2] = []
+
     def __init__(self, a: int, b: int, c: int, d: int):
         self.a: int = a
         self.b: int = b
@@ -15,20 +23,29 @@ class Matrix2x2:
         self.d: int = d
 
     @classmethod
-    def new_identity(cls) -> Matrix2x2:
-        return Matrix2x2(1, 0, 0, 1)
-
+    def precompute_transformations(cls):
+        rotate = Matrix2x2(0, 1, -1, 0)
+        flip_horizontal_axis = Matrix2x2(1, 0, 0, -1)
+        flip_vertical_axis = Matrix2x2(-1, 0, 0, 1)
+        flip_both_axes = flip_horizontal_axis.multiply_left(flip_vertical_axis)
+        m = Matrix2x2(1, 0, 0, 1)  # start with identity
+        for _ in range(4):  # for each rotation
+            # for each transformation we save inverted matrices, so that we can compute
+            # original coordinates given transformed coordinates (transformations
+            # will be used to read transformed tile data without modifying tile)
+            cls.add_to_all_transformations(m.copy())  # without flipping
+            cls.add_to_all_transformations(m.multiply_left(flip_horizontal_axis).inverse())
+            cls.add_to_all_transformations(m.multiply_left(flip_vertical_axis).inverse())
+            cls.add_to_all_transformations(m.multiply_left(flip_both_axes).inverse())
+            m = m.multiply_left(rotate)  # go to next rotation
+    
     @classmethod
-    def new_rotation_clockwise(cls) -> Matrix2x2:
-        return Matrix2x2(0, 1, -1, 0)
+    def add_to_all_transformations(cls, m: Matrix2x2):
+        for t in cls.all_transformations:
+            if t == m:
+                return
+        cls.all_transformations.append(m)
 
-    @classmethod
-    def new_flip_horizontal_axis(cls) -> Matrix2x2:
-        return Matrix2x2(1, 0, 0, -1)
-
-    @classmethod
-    def new_flip_vertical_axis(cls) -> Matrix2x2:
-        return Matrix2x2(-1, 0, 0, 1)
 
     # multiply_left returns m * self
     def multiply_left(self, m: Matrix2x2) -> Matrix2x2:
@@ -46,30 +63,104 @@ class Matrix2x2:
     def inverse(self) -> Matrix2x2:
         det = self.a * self.d - self.b * self.c
         if det != 1 and det != -1:
+            # Matrices used in precompute_transformations: identity, rotations, flipping
+            # always have determinant 1. Thanks to that, inverted matrices still have
+            # coordinates of type int - we do not use floating point arithmetic here.
+            # This code does not have to be generic, so just raise excpetion if we have other determinant.
             raise RuntimeError("all matrices we use here should have determinant 1 or -1")
-        d1 = 1 // det
+        # Normally results should be divided by det, but thanks to property described above 1/det = det
         return Matrix2x2(
-            self.d * d1, -self.b * d1,
-            -self.c * d1, self.a * d1,
+            self.d * det, -self.b * det,
+            -self.c * det, self.a * det,
         )
 
     # multiply_by_vector_right returns self * vertical_vector[x, y]
-    def multiply_by_vector_right(self, x: int, y: int) -> (int, int):
+    def multiply_by_vector_right(self, x: int, y: int) -> Tuple[int, int]:
         return self.a * x + self.b * y, self.c * x + self.d * y
 
     def __str__(self):
         return f"[{self.a} {self.b} | {self.c} {self.d}]"
 
+    def __eq__(self, other):
+        if isinstance(other, Matrix2x2):
+            return self.a == other.a and \
+                self.b == other.b and \
+                self.c == other.c and \
+                self.d == other.d
+        return False
 
-ROTATION_MATRIX = Matrix2x2.new_rotation_clockwise()
-FLIP_VERTICAL_MATRIX = Matrix2x2.new_flip_vertical_axis()
-FLIP_HORIZONTAL_MATRIX = Matrix2x2.new_flip_horizontal_axis()
 
 
 def safe_add_to_dict_of_sets(dictionary: Dict[object, Set[object]], key, value):
     if key not in dictionary:
         dictionary[key] = set()
     dictionary[key].add(value)
+
+
+class Tile2:
+    # Tile data coordiante systsem is constructed in a way that allows
+    # to transform tile by just changing transformation matrix.
+    # Transformation matrices represent linear transformations in 2D space.
+    # For it to work, tile data coordinates must be centred at (0, 0) and symmetric
+    # These are discrete coordinates and tile size (10x10) is even, so y=0 and x=0 must
+    # be skipped for symetry. On example picture below coordinates a = (-5, -5) and b = (5, 5).
+    # a    |
+    #      |
+    #      |
+    #      |
+    #      |
+    # -----#-----> X
+    #      |
+    #      |
+    #      |
+    #      |
+    #      |    b
+    #      Y
+    def __init__(self, text: List[str], number: int):
+        self.number = number
+        self.data: Dict[Tuple[int, int], str] = {}
+        x, y = -HALF_TILE_LEN, -HALF_TILE_LEN
+        for line in text:
+            x = -HALF_TILE_LEN
+            for c in line:
+                self.data[(x, y)] = c
+                x += 1
+                if x == 0:  # skip x = 0
+                    x += 1
+            y += 1
+            if y == 0:
+                y += 1
+
+    # get reads given position from Tile data.
+    # x, y are cooridinates in current transformation,
+    # for example if tile has been flipped around X axis,
+    # tile's up border will still be y = -5, x in [-5:-1, 1:5], i.e. the caller
+    # should use the same coordinates for given tile element regardless of transformation.
+    # transformation passed as 3-rd argument is inversed matrix of tile transformation,
+    # such matrices are already there in Matrix2x2.all_transformations
+    def get(self, x: int, y: int, transformation: Matrix2x2) -> str:
+        original_x, original_y = transformation.multiply_by_vector_right(x, y)
+        return self.data[(original_x, original_y)]
+
+    def up(self, transformation: Matrix2x2) -> str:
+        all_x = itertools.chain(range(-5, 0), range(1, 6))
+        y = -5
+        return "".join(self.get(x, y, transformation) for x in all_x)
+
+    def right(self, transformation: Matrix2x2) -> str:
+        x = 5
+        all_y = itertools.chain(range(-5, 0), range(1, 6))
+        return "".join(self.get(x, y, transformation) for y in all_y)
+
+    def down(self, transformation: Matrix2x2) -> str:
+        all_x = itertools.chain(range(-5, 0), range(1, 6))
+        y = 5
+        return "".join(self.get(x, y, transformation) for x in all_x)
+
+    def left(self, transformation: Matrix2x2) -> str:
+        x = -5
+        all_y = itertools.chain(range(-5, 0), range(1, 6))
+        return "".join(self.get(x, y, transformation) for y in all_y)
 
 
 @dataclass
@@ -247,7 +338,7 @@ class ListToMatrixIndexer:
     def list_index(self, x: int, y: int) -> int:
         return y * self.width + x
 
-    def coordinates(self, list_index: int) -> (int, int):
+    def coordinates(self, list_index: int) -> Tuple[int, int]:
         y = list_index // self.width
         x = list_index % self.width
         return x, y
@@ -316,6 +407,7 @@ class Image:
 
 def main():
     tiles: List[Tile] = []
+    tiles2: List[Tile2] = []
     with open("data.txt") as f:
         line = f.readline().strip()
         while line:
@@ -323,29 +415,31 @@ def main():
                 raise ValueError(f"expected Tile header, got {line}")
             number = int(line[5:9])
             data = []
-            for i in range(10):
+            for i in range(2 * HALF_TILE_LEN):
                 line = f.readline().strip()
                 data.append(line)
             tiles.append(Tile(data, number))
+            tiles2.append(Tile2(data, number))
             line = f.readline().strip()
             if line:
                 raise ValueError(f"expected empty line, got {line}")
             line = f.readline().strip()
 
-    print(ROTATION_MATRIX.multiply_by_vector_right(1, 2))
-    m1 = Matrix2x2.new_identity()
-    for rotation in range(4):  # for each rotation
-        print(m1.inverse())  # without flipping
-        m1 = m1.multiply_left(FLIP_VERTICAL_MATRIX)
-        print(m1.inverse())  # with flip_left_right
-        m1 = m1.multiply_left(FLIP_VERTICAL_MATRIX)  # reverts flip_left_right
-        m1 = m1.multiply_left(FLIP_HORIZONTAL_MATRIX)
-        print(m1.inverse())  # with flip_up_down
-        m1 = m1.multiply_left(FLIP_VERTICAL_MATRIX)
-        print(m1.inverse())  # with flip_up_down and flip_left_right
-        m1 = m1.multiply_left(FLIP_VERTICAL_MATRIX)  # reverts flip_left_right
-        m1 = m1.multiply_left(FLIP_HORIZONTAL_MATRIX)  # reverts flip_up_down
-        m1 = m1.multiply_left(ROTATION_MATRIX)  # go to next rotation - or (in case of last iteration) reset to original rotation
+    result_old_up = set()
+    tile = tiles[0]
+    for tt in tile.yield_all_transformations():
+        result_old_up.add("".join(tt.up))
+    print(sorted(list(result_old_up)))
+
+    Matrix2x2.precompute_transformations()
+    tile2 = tiles2[0]
+    result_new_up = set()
+    for t in Matrix2x2.all_transformations:
+        result_new_up.add(tile2.up(t))
+    print(sorted(list(result_new_up)))
+
+    for tt in Matrix2x2.all_transformations:
+        print(tt)
     # neighbourhood_manager = TileNeighbourhoodManager(tiles)
     # neighbourhood_manager.stats()
     # image = Image(tiles)
