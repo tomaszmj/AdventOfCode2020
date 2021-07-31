@@ -137,7 +137,7 @@ class Tile:
                 y += 1
 
     # get reads given position from Tile data.
-    # x, y are cooridinates in current transformation,
+    # x, y are coordinates in current transformation,
     # for example if tile has been flipped around X axis,
     # tile's up border will still be y = -5, x in [-5:-1, 1:5], i.e. the caller
     # should use the same coordinates for given tile element regardless of transformation.
@@ -187,7 +187,7 @@ class TileNeighbour(NamedTuple):
 
 class TileNeighbourhoodManager:
     def __init__(self, tiles: Iterable[Tile]):
-        print(f"creating TileNeighbourhoodManager...")
+        print(f"creating TileNeighbourhoodManager ...")
         self.tiles_with_degrees: List[TileWithDegree] = []
         # *_successors map tile number to set of possible tile numbers next to given tile
         self.right_successors: Dict[TileSelection, Set[TileSelection]] = {}
@@ -264,7 +264,7 @@ class TileNeighbourhoodManager:
     def filter_by_neighbour(self, current_filter: Callable[[TileSelection], bool], n: TileNeighbour) -> Callable[[TileSelection], bool]:
         if not n:  # there is no neighbour - no filter modification
             return current_filter
-        successors_dict = getattr(self, n.direction_from_neighbour + "_successors")  # successor_dicretion must be right / up / left / down
+        successors_dict = getattr(self, n.direction_from_neighbour + "_successors")  # successor_direction must be right / up / left / down
         if n.neighbour not in successors_dict:  # there is neighbour with no allowed successors - filter will always fail
             return lambda selection: False
         available_selections = successors_dict[n.neighbour]
@@ -273,32 +273,6 @@ class TileNeighbourhoodManager:
     @staticmethod
     def new_empty_filter() -> Callable[[TileSelection], bool]:
         return lambda selection: True
-
-
-# class BacktrackingPositionPicker:
-#     def __init__(self):
-#         self.size = (HALF_TILE_LEN*2)**2
-#
-#         self.predefined_choices = [
-#             (0, 0),
-#             (self.size - 1, 0),
-#             (0, self.size - 1),
-#             (self.size - 1, self.size - 1),
-#         ]
-#         for x in range(1, self.size - 1):
-#             self.predefined_choices.append((x, 0))
-#
-#     def pick(self, chosen_so_far: int) -> Tuple[int, int]:
-#         if chosen_so_far == 0:
-#             return 0, 0
-#         if chosen_so_far == 1:
-#             return self.size - 1, 0
-#         if chosen_so_far == 2:
-#             return 0, self.size - 1
-#         if chosen_so_far == 3:
-#             return self.size - 1, self.size - 1
-#         if len(choices) < 4:
-#             return None  # TODO
 
 
 class ListToMatrixIndexer:
@@ -351,22 +325,16 @@ class Image:
 
     def _solve(self, chosen_numbers_set: Set[int], neighbourhood_manager: TileNeighbourhoodManager) -> bool:
         if len(self.choices) == len(self.all_tiles):
-            print("_solve ok")
             return True
         x, y = self.indexer.coordinates(len(self.choices))
         neighbours = self._neighbours(x, y)
-
-        # if self.indexer.is_corner(x, y):
-        #     possible_selections = neighbourhood_manager.possible_new_tiles_at_corner(chosen_numbers_set, neighbours)
-        # elif self.indexer.is_border(x, y):
-        #     possible_selections = neighbourhood_manager.possible_new_tiles_at_border(chosen_numbers_set, neighbours)
-        # else:
-        #     possible_selections = neighbourhood_manager.possible_new_tiles_inside(chosen_numbers_set, neighbours)
-
-        possible_selections = list(neighbourhood_manager.possible_new_tiles(self.all_tiles.keys(), chosen_numbers_set, neighbours))  # temporary hack for data_small
-        # print(f"_solve started at ({x},{y}) - got {len(possible_selections)} options")
+        if self.indexer.is_corner(x, y):
+            possible_selections = neighbourhood_manager.possible_new_tiles_at_corner(chosen_numbers_set, neighbours)
+        elif self.indexer.is_border(x, y):
+            possible_selections = neighbourhood_manager.possible_new_tiles_at_border(chosen_numbers_set, neighbours)
+        else:
+            possible_selections = neighbourhood_manager.possible_new_tiles_inside(chosen_numbers_set, neighbours)
         for selection in possible_selections:
-            # print(f"pick {selection.number},{selection.transformation_index} at ({x},{y})")
             # pick selection
             chosen_numbers_set.add(selection.number)
             self.choices[(x, y)] = selection
@@ -376,7 +344,6 @@ class Image:
             # if recursive call failed, backtrack - revert choice and try other options
             del self.choices[(x, y)]
             chosen_numbers_set.remove(selection.number)
-        # print(f"_solve at ({x},{y}) -> False")
         return False  # there was no matching selection
 
     def _neighbours(self, x: int, y: int) -> List[TileNeighbour]:
@@ -396,7 +363,7 @@ class Image:
 
 def main():
     tiles: List[Tile] = []
-    with open("data_small.txt") as f:
+    with open("data.txt") as f:
         line = f.readline().strip()
         while line:
             if line[:4] != "Tile":
