@@ -185,8 +185,7 @@ class TileNeighbourhoodManager:
         # *_successors map tile number to set of possible tile numbers next to given tile
         self.right_successors: Dict[TileSelection, Set[TileSelection]] = {}
         self.down_successors: Dict[TileSelection, Set[TileSelection]] = {}
-        print(f"precomputing neighbourhood by checking all pairs of (tile, transformation) -"
-              f" {len(self.all_tile_numbers)*(len(self.all_tile_numbers)-1)*256} checks ...")
+        print(f"precomputing neighbourhood by checking all pairs of (tile, transformation) for {len(self.all_tile_numbers)} tiles")
         self.prepare_neighbourhood_data(tiles)
         print(f"created TileNeighbourhoodManager with {len(self.right_successors)} right "
               f"successors and {len(self.down_successors)} down successors")
@@ -252,6 +251,15 @@ class TileNeighbourhoodManager:
         return self.down_successors[key]
 
 
+class BacktrackingPositionPicker:
+    def __init__(self):
+        self.size = (HALF_TILE_LEN*2)**2
+    
+    def pick(self, choices: Dict[Tuple[int, int], TileSelection]) -> Tuple[int, int]:
+        if len(choices) < 4:
+            return None  # TODO
+
+
 class ListToMatrixIndexer:
     def __init__(self, width: int, height: int):
         self.width = width
@@ -282,21 +290,22 @@ class Image:
         size = int(math.sqrt(len(tiles)))
         if size ** 2 != len(tiles):
             raise ValueError(f"number of tiles {len(tiles)} is not a square of natural number")
-        self.indexer = ListToMatrixIndexer(size, size)
+        self.choices: Dict[Tuple[int, int], TileSelection] = {}
 
     # solve will try to put all tiles to their places so that they match.
-    # It returns list of chosen tiles on success, empty list on failure
-    def solve(self) -> List[Tile]:
+    # On success it returns True and fills in self.choices dict
+    # Otherwise it returns False
+    def solve(self) -> bool:
         neighbourhood_manager = TileNeighbourhoodManager(self.all_tiles.values())
-        chosen_tiles: List[Tile] = []
+        self.choices = {}
         print(f"solving by backtracking for {len(self.all_tiles)} tiles ...")
-        if self._solve(chosen_tiles, set(), neighbourhood_manager):
-            return chosen_tiles
-        return []
+        if self._solve(set(), neighbourhood_manager):
+            return True
+        self.choices = {}  # reset choices
+        return False
 
-    def _solve(self, chosen_tiles: List[Tile], chosen_numbers_set: Set[int],
-               neighbourhood_manager: TileNeighbourhoodManager) -> bool:
-        if len(chosen_tiles) == len(self.all_tiles):
+    def _solve(self, chosen_numbers_set: Set[int], neighbourhood_manager: TileNeighbourhoodManager) -> bool:
+        if len(self.choices) == len(self.all_tiles):
             return True
         new_x, new_y = self.indexer.coordinates(len(chosen_tiles))
         left_neighbour = chosen_tiles[self.indexer.list_index(new_x - 1, new_y)] if new_x > 0 else None
