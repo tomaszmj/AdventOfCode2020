@@ -95,7 +95,6 @@ class Matrix2x2:
             self.d == other.d
 
 
-
 def safe_add_to_dict_of_sets(dictionary: Dict[object, Set[object]], key, value):
     if key not in dictionary:
         dictionary[key] = set()
@@ -186,46 +185,60 @@ class TileNeighbour(NamedTuple):
 
 
 class TileNeighbourhoodManager:
-    def __init__(self, tiles: Iterable[Tile]):
+    def __init__(self, all_tiles: Dict[int, Tile]):
         print(f"creating TileNeighbourhoodManager ...")
+        self.all_tiles = all_tiles
         self.tiles_with_degrees: List[TileWithDegree] = []
         # *_successors map tile number to set of possible tile numbers next to given tile
         self.right_successors: Dict[TileSelection, Set[TileSelection]] = {}
         self.down_successors: Dict[TileSelection, Set[TileSelection]] = {}
-        self.left_successors: Dict[TileSelection, Set[TileSelection]] = {}
-        self.up_successors: Dict[TileSelection, Set[TileSelection]] = {}
-        self.prepare_neighbourhood_data(tiles)
+        # we could also add left / up successors, but currently image is filled in left-to-right, up-down,
+        # so newly added tile will never have neighbours above / to the left
+        self.prepare_neighbourhood_data()
         print(f"created TileNeighbourhoodManager with {len(self.right_successors)} right "
               f"successors and {len(self.down_successors)} down successors")
 
-    def prepare_neighbourhood_data(self, tiles: Iterable[Tile]):
-        possible_neighbours: Dict[int, Set[int]] = {}
-        for t1, t2 in itertools.product(tiles, repeat=2):
-            if t1.number == t2.number:
-                continue
-            for tr1_index, tr1 in enumerate(Matrix2x2.all_transformations()):
-                selection1 = TileSelection(t1.number, tr1_index)
-                for tr2_index, tr2 in enumerate(Matrix2x2.all_transformations()):
-                    selection2 = TileSelection(t2.number, tr2_index)
-                    if t1.right(tr1) == t2.left(tr2):  # t2 in current transformation might be right to t1
-                        safe_add_to_dict_of_sets(self.right_successors, selection1, selection2)
-                        safe_add_to_dict_of_sets(possible_neighbours, t1.number, t2.number)
-                        safe_add_to_dict_of_sets(possible_neighbours, t2.number, t1.number)
-                    if t1.down(tr1) == t2.up(tr2):  # t2 in current transformation might be under t1
-                        safe_add_to_dict_of_sets(self.down_successors, selection1, selection2)
-                        safe_add_to_dict_of_sets(possible_neighbours, t1.number, t2.number)
-                        safe_add_to_dict_of_sets(possible_neighbours, t2.number, t1.number)
-                    if t1.left(tr1) == t2.right(tr1):  # t2 in current transformation might be left to t1
-                        safe_add_to_dict_of_sets(self.left_successors, selection1, selection2)
-                        safe_add_to_dict_of_sets(possible_neighbours, t1.number, t2.number)
-                        safe_add_to_dict_of_sets(possible_neighbours, t2.number, t1.number)
-                    if t1.up(tr1) == t2.down(tr1):  # t2 in current transformation might be over t1
-                        safe_add_to_dict_of_sets(self.up_successors, selection1, selection2)
-                        safe_add_to_dict_of_sets(possible_neighbours, t1.number, t2.number)
-                        safe_add_to_dict_of_sets(possible_neighbours, t2.number, t1.number)
+    def prepare_neighbourhood_data(self):
+        possible_neighbours = self.check_possible_neighbours()
+        self.fill_in_successors(possible_neighbours)
         for n, s in possible_neighbours.items():
             self.tiles_with_degrees.append(TileWithDegree(number=n, degree=len(s)))
         self.tiles_with_degrees.sort(key=lambda t: t.degree)
+
+    # check_possible_neighbours returns dict mapping tile number to
+    # the set of its possible neighbours, no matter how transformed
+    def check_possible_neighbours(self) -> Dict[int, Set[int]]:
+        possible_neighbours: Dict[int, Set[int]] = {}
+        neutral_transform = Matrix2x2.all_transformations()[0]
+        for t1, t2 in itertools.product(self.all_tiles.values(), repeat=2):
+            if t1.number == t2.number:
+                continue
+            right1 = t1.right(neutral_transform)
+            down1 = t1.down(neutral_transform)
+            left1 = t1.left(neutral_transform)
+            up1 = t1.up(neutral_transform)
+            for tr2 in Matrix2x2.all_transformations():
+                if right1 == t2.left(tr2) or down1 == t2.up(tr2) or left1 == t2.right(tr2) or up1 == t2.down(tr2):
+                    safe_add_to_dict_of_sets(possible_neighbours, t1.number, t2.number)
+                    safe_add_to_dict_of_sets(possible_neighbours, t2.number, t1.number)
+                    break
+        return possible_neighbours
+
+    def fill_in_successors(self, possible_neighbours: Dict[int, Set[int]]):
+        for tile1_number, neighbours in possible_neighbours.items():
+            tile1 = self.all_tiles[tile1_number]
+            for tr1_index, tr1 in enumerate(Matrix2x2.all_transformations()):
+                selection1 = TileSelection(tile1_number, tr1_index)
+                right1 = tile1.right(tr1)
+                down1 = tile1.down(tr1)
+                for tile2_number in neighbours:
+                    tile2 = self.all_tiles[tile2_number]
+                    for tr2_index, tr2 in enumerate(Matrix2x2.all_transformations()):
+                        selection2 = TileSelection(tile2_number, tr2_index)
+                        if right1 == tile2.left(tr2):  # tile2 in current transformation might be right to tile1
+                            safe_add_to_dict_of_sets(self.right_successors, selection1, selection2)
+                        if down1 == tile2.up(tr2):  # tile2 in current transformation might be under tile1
+                            safe_add_to_dict_of_sets(self.down_successors, selection1, selection2)
 
     def stats(self):
         print("tiles with number of possible neighbours:")
@@ -315,7 +328,7 @@ class Image:
     # On success it returns True and fills in self.choices dict
     # Otherwise it returns False
     def solve(self) -> bool:
-        neighbourhood_manager = TileNeighbourhoodManager(self.all_tiles.values())
+        neighbourhood_manager = TileNeighbourhoodManager(self.all_tiles)
         self.choices = {}
         print(f"solving with backtracking for {len(self.all_tiles)} tiles ...")
         if self._solve(set(), neighbourhood_manager):
@@ -356,8 +369,8 @@ class Image:
             n = self.choices.get((x, y - 1))
             if n:
                 neighbours.append(TileNeighbour(n, "down"))
-        # we can also check left / up successors, but currently _solve fills image left-to-right, up-down,
-        # so there will be no left / up successors
+        # we could also add left / up successors, but currently image is filled in left-to-right, up-down,
+        # so newly added tile will never have neighbours above / to the left
         return neighbours
 
 
