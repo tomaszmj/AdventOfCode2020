@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import itertools
 import math
-import copy
+import time
 from typing import List, Set, Iterable, Dict, NamedTuple, Tuple, Callable
-from dataclasses import dataclass
 
 
 HALF_TILE_LEN = 5
@@ -95,12 +94,6 @@ class Matrix2x2:
             self.d == other.d
 
 
-def safe_add_to_dict_of_sets(dictionary: Dict[object, Set[object]], key, value):
-    if key not in dictionary:
-        dictionary[key] = set()
-    dictionary[key].add(value)
-
-
 class Tile:
     # Tile data coordiante systsem is constructed in a way that allows
     # to transform tile by just changing transformation matrix.
@@ -123,9 +116,17 @@ class Tile:
     def __init__(self, text: List[str], number: int):
         self.number = number
         self.data: Dict[Tuple[int, int], str] = {}
-        x, y = -HALF_TILE_LEN, -HALF_TILE_LEN
+        size = len(text)
+        if size == 0 or any((size != len(t) for t in text)):
+            raise ValueError(f"invalid text passed in Tile constructor, expected square size, got:\n{text}")
+        # coordinates could be implemented for odd size as well, but it would complicate
+        # implementation and it is not needed for the data we have, so only even size is accepted
+        if size % 2 == 1:
+            raise ValueError(f"Tile supports only even size, got {size}")
+        self.half_size = size // 2
+        x, y = -self.half_size, -self.half_size
         for line in text:
-            x = -HALF_TILE_LEN
+            x = -self.half_size
             for c in line:
                 self.data[(x, y)] = c
                 x += 1
@@ -147,24 +148,44 @@ class Tile:
         return self.data[(original_x, original_y)]
 
     def up(self, transformation: Matrix2x2) -> str:
-        all_x = itertools.chain(range(-5, 0), range(1, 6))
-        y = -5
+        all_x = itertools.chain(range(-self.half_size, 0), range(1, self.half_size + 1))
+        y = -self.half_size
         return "".join(self.get(x, y, transformation) for x in all_x)
 
     def right(self, transformation: Matrix2x2) -> str:
-        x = 5
-        all_y = itertools.chain(range(-5, 0), range(1, 6))
+        x = self.half_size
+        all_y = itertools.chain(range(-self.half_size, 0), range(1, self.half_size + 1))
         return "".join(self.get(x, y, transformation) for y in all_y)
 
     def down(self, transformation: Matrix2x2) -> str:
-        all_x = itertools.chain(range(-5, 0), range(1, 6))
-        y = 5
+        all_x = itertools.chain(range(-self.half_size, 0), range(1, self.half_size + 1))
+        y = self.half_size
         return "".join(self.get(x, y, transformation) for x in all_x)
 
     def left(self, transformation: Matrix2x2) -> str:
-        x = -5
-        all_y = itertools.chain(range(-5, 0), range(1, 6))
+        x = -self.half_size
+        all_y = itertools.chain(range(-self.half_size, 0), range(1, self.half_size + 1))
         return "".join(self.get(x, y, transformation) for y in all_y)
+
+    def row(self, y: int, transformation: Matrix2x2) -> str:
+        if y < -self.half_size or y == 0 or y > self.half_size:
+            raise ValueError(f"invalid y for row: {y}")
+        all_x = itertools.chain(range(-self.half_size, 0), range(1, self.half_size + 1))
+        return "".join(self.get(x, y, transformation) for x in all_x)
+
+    def interior_row(self, y: int, transformation: Matrix2x2) -> str:
+        if y <= -self.half_size or y == 0 or y >= self.half_size:
+            raise ValueError(f"invalid y for interior_row: {y}")
+        # all_x is smaller range than above, because only interior elements are used
+        all_x = itertools.chain(range(-self.half_size + 1, 0), range(1, self.half_size))
+        return "".join(self.get(x, y, transformation) for x in all_x)
+
+    def all_data_as_list(self, transformation: Matrix2x2) -> List[str]:
+        # This function is poor in terms of performance, because it performs brutal matrix
+        # multiplication for each coordinate pair just to read all data from dict in proper order.
+        # But it turned out that this performance is more than enough, because our image is small.
+        all_y = itertools.chain(range(-self.half_size, 0), range(1, self.half_size + 1))
+        return list((self.row(y, transformation) for y in all_y))
 
 
 class TileSelection(NamedTuple):
@@ -186,6 +207,7 @@ class TileNeighbour(NamedTuple):
 
 class TileNeighbourhoodManager:
     def __init__(self, all_tiles: Dict[int, Tile]):
+        t1 = time.time()
         print(f"creating TileNeighbourhoodManager ...")
         self.all_tiles = all_tiles
         self.tiles_with_degrees: List[TileWithDegree] = []
@@ -195,7 +217,8 @@ class TileNeighbourhoodManager:
         # we could also add left / up successors, but currently image is filled in left-to-right, up-down,
         # so newly added tile will never have neighbours above / to the left
         self.prepare_neighbourhood_data()
-        print(f"created TileNeighbourhoodManager with {len(self.right_successors)} right "
+        t2 = time.time()
+        print(f"created TileNeighbourhoodManager in {t2-t1}s with {len(self.right_successors)} right "
               f"successors and {len(self.down_successors)} down successors")
 
     def prepare_neighbourhood_data(self):
@@ -208,6 +231,7 @@ class TileNeighbourhoodManager:
     # check_possible_neighbours returns dict mapping tile number to
     # the set of its possible neighbours, no matter how transformed
     def check_possible_neighbours(self) -> Dict[int, Set[int]]:
+        time1 = time.time()
         possible_neighbours: Dict[int, Set[int]] = {}
         neutral_transform = Matrix2x2.all_transformations()[0]
         for t1, t2 in itertools.product(self.all_tiles.values(), repeat=2):
@@ -219,9 +243,11 @@ class TileNeighbourhoodManager:
             up1 = t1.up(neutral_transform)
             for tr2 in Matrix2x2.all_transformations():
                 if right1 == t2.left(tr2) or down1 == t2.up(tr2) or left1 == t2.right(tr2) or up1 == t2.down(tr2):
-                    safe_add_to_dict_of_sets(possible_neighbours, t1.number, t2.number)
-                    safe_add_to_dict_of_sets(possible_neighbours, t2.number, t1.number)
+                    self.safe_add_to_dict_of_sets(possible_neighbours, t1.number, t2.number)
+                    self.safe_add_to_dict_of_sets(possible_neighbours, t2.number, t1.number)
                     break
+        time2 = time.time()
+        print(f"check_possible_neighbours done in {time2-time1}s")
         return possible_neighbours
 
     def fill_in_successors(self, possible_neighbours: Dict[int, Set[int]]):
@@ -236,9 +262,9 @@ class TileNeighbourhoodManager:
                     for tr2_index, tr2 in enumerate(Matrix2x2.all_transformations()):
                         selection2 = TileSelection(tile2_number, tr2_index)
                         if right1 == tile2.left(tr2):  # tile2 in current transformation might be right to tile1
-                            safe_add_to_dict_of_sets(self.right_successors, selection1, selection2)
+                            self.safe_add_to_dict_of_sets(self.right_successors, selection1, selection2)
                         if down1 == tile2.up(tr2):  # tile2 in current transformation might be under tile1
-                            safe_add_to_dict_of_sets(self.down_successors, selection1, selection2)
+                            self.safe_add_to_dict_of_sets(self.down_successors, selection1, selection2)
 
     def stats(self):
         print("tiles with number of possible neighbours:")
@@ -287,6 +313,12 @@ class TileNeighbourhoodManager:
     def new_empty_filter() -> Callable[[TileSelection], bool]:
         return lambda selection: True
 
+    @staticmethod
+    def safe_add_to_dict_of_sets(dictionary: Dict[object, Set[object]], key, value):
+        if key not in dictionary:
+            dictionary[key] = set()
+        dictionary[key].add(value)
+
 
 class ListToMatrixIndexer:
     def __init__(self, width: int, height: int):
@@ -313,6 +345,48 @@ class ListToMatrixIndexer:
         return x == 0 or y == 0 or x == self.width - 1 or y == self.height - 1
 
 
+class MonsterParser:
+    MONSTER = [
+        "                  # ",
+        "#    ##    ##    ###",
+        " #  #  #  #  #  #   "
+    ]
+
+    def __init__(self):
+        self.monster_width = len(self.MONSTER[0])
+        self.monster_height = len(self.MONSTER)
+        self.all_hashes = sum(line.count("#") for line in self.MONSTER)
+        self.fields: Set[Tuple[int, int]] = set()
+        for y, line in enumerate(self.MONSTER):
+            for x, c in enumerate(line):
+                if c == "#":
+                    self.fields.add((x, y))
+
+    def find_monster(self, data_source: Callable[[int, int], str], x_begin: int, y_begin: int) -> Set[Tuple[int, int]]:
+        monster_fields: Set[Tuple[int, int]] = set()
+        for f in self.fields:
+            x, y = x_begin + f[0], y_begin + f[1]
+            if data_source(x, y) != "#":
+                return set()
+            monster_fields.add((x, y))
+        return monster_fields
+
+    def count_monsters(self, data: List[str]) -> int:
+        # I assume that monsters' bounding rectangles can overlap, but monster fields itself cannot,
+        # so there is a set monster_fields - if some field is already in monster_fields, it cannot be used again
+        monster_fields: Set[Tuple[int, int]] = set()
+        count = 0
+        y_end = len(data) - self.monster_height
+        x_end = len(data[0]) - self.monster_width
+        for y_begin in range(y_end):
+            for x_begin in range(x_end):
+                found = self.find_monster(lambda x, y: data[y][x] if (x, y) not in monster_fields else "", x_begin, y_begin)
+                if len(found) > 0:
+                    monster_fields.update(found)
+                    count += 1
+        return count
+
+
 class Image:
     def __init__(self, tiles: List[Tile]):
         self.all_tiles: Dict[int, Tile] = {}
@@ -323,6 +397,8 @@ class Image:
             raise ValueError(f"number of tiles {len(tiles)} is not a square of natural number")
         self.indexer = ListToMatrixIndexer(size, size)
         self.choices: Dict[Tuple[int, int], TileSelection] = {}
+        self.assembled_data: Tile = None
+        self.all_hashes_count: int = 0
 
     # solve will try to put all tiles to their places so that they match.
     # On success it returns True and fills in self.choices dict
@@ -330,11 +406,47 @@ class Image:
     def solve(self) -> bool:
         neighbourhood_manager = TileNeighbourhoodManager(self.all_tiles)
         self.choices = {}
+        t1 = time.time()
         print(f"solving with backtracking for {len(self.all_tiles)} tiles ...")
         if self._solve(set(), neighbourhood_manager):
+            t2 = time.time()
+            print(f"solving with backtracking OK after {t2-t1}s")
             return True
         self.choices = {}  # reset choices
         return False
+
+    def assemble(self):
+        t1 = time.time()
+        raw_data: List[str] = []
+        for tile_y in range(self.indexer.height):
+            for y_in_tile in itertools.chain(range(-4, 0), range(1, 5)):
+                raw_data.append("".join(self._row_from_tile(tile_x, tile_y, y_in_tile) for tile_x in range(self.indexer.width)))
+        expected_len = self.indexer.width * (HALF_TILE_LEN*2 - 2)
+        if len(raw_data) != expected_len or len(raw_data[0]) != expected_len:
+            raise RuntimeError(f"assemble assertion failed, expected square {expected_len}, got {len(raw_data[0])}x{len(raw_data)}")
+        self.assembled_data = Tile(raw_data, 0)
+        self.all_hashes_count = sum(line.count("#") for line in raw_data)
+        t2 = time.time()
+        print(f"assemble took {t2-t1}s")
+
+    # magic number required as puzzle solution
+    def find_sea_roughness(self) -> int:
+        t1 = time.time()
+        monsters_per_transformation: List[int] = []
+        monster_parser = MonsterParser()
+        for transformation in Matrix2x2.all_transformations():
+            raw_data = self.assembled_data.all_data_as_list(transformation)
+            monsters_per_transformation.append(monster_parser.count_monsters(raw_data))
+        monsters = max(monsters_per_transformation)
+        t2 = time.time()
+        print(f"find_sea_roughness took {t2-t1}s, monsters {monsters_per_transformation} -> {monsters}")
+        return self.all_hashes_count - monsters * monster_parser.all_hashes
+
+    def _row_from_tile(self, tile_x, tile_y: int, y_in_tile: int) -> str:
+        selection = self.choices[(tile_x, tile_y)]
+        tile = self.all_tiles[selection.number]
+        transformation = Matrix2x2.all_transformations()[selection.transformation_index]
+        return tile.interior_row(y_in_tile, transformation)
 
     def _solve(self, chosen_numbers_set: Set[int], neighbourhood_manager: TileNeighbourhoodManager) -> bool:
         if len(self.choices) == len(self.all_tiles):
@@ -392,15 +504,17 @@ def main():
                 raise ValueError(f"expected empty line, got {line}")
             line = f.readline().strip()
     image = Image(tiles)
-    if image.solve():
-        print("solved:")
-        for y in range(image.indexer.height):
-            for x in range(image.indexer.width):
-                c = image.choices[(x, y)]
-                print(c.number, end=" ")
-            print("")
-    else:
+    if not image.solve():
         print("could not find solution :(")
+        return
+    print("tiles combined together:")
+    for y in range(image.indexer.height):
+        for x in range(image.indexer.width):
+            c = image.choices[(x, y)]
+            print(f"({c.number} t{c.transformation_index})", end=" ")
+        print("")
+    image.assemble()
+    print(f"final answer: {image.find_sea_roughness()}")
 
 
 if __name__ == "__main__":
