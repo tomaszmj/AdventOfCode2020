@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from typing import Set, Dict, NamedTuple, List, Iterable
-import itertools
+from typing import Set, Dict, NamedTuple, List
+import time
 
 
 class FoodEntry(NamedTuple):
@@ -40,6 +40,8 @@ class Data:
         self._choices: List[IngredientPerAllergenEntry] = []  # const after _initialize_internals
         self._allergen_per_ingredient: Dict[str, str] = {}  # variable used in _solve
         self._ingredient_per_allergen: Dict[str, str] = {}  # variable used in _solve
+        self._failed_solves = 0  # used only for _time_metric
+        self._t = time.time()  # used only for _time_metric
 
     def add_entry(self, entry: FoodEntry):
         self.entries.append(entry)
@@ -71,7 +73,8 @@ class Data:
     def solve(self):
         self._initialize_internals()
         print(f"staring solve with {len(self.possible_allergens_set_per_ingredient)} ingredients and "
-              f"{len(self.possible_ingredients_set_per_allergen)} allergens")
+              f"{len(self.possible_ingredients_set_per_allergen)} allergens, choices:\n"
+              f"{self.possible_ingredients_per_allergen_to_str()}")
         return self._solve()
 
     def possible_choices_to_str(self) -> str:
@@ -92,6 +95,11 @@ class Data:
             (f"{allergen}: {self._ingredient_per_allergen.get(allergen, '')}" for allergen in allergens)
         )
 
+    def possible_ingredients_per_allergen_to_str(self) -> str:
+        return "\n".join(
+            (f"{choice.allergen}: {len(choice.possible_ingredients)}" for choice in self._choices)
+        )
+
     def ingredients_without_allergens(self) -> Set[str]:
         ingredients_without_allergens = set()
         for ingredient in self._all_ingredients_set:
@@ -109,6 +117,7 @@ class Data:
         return result
 
     def _solve(self) -> bool:
+        self._time_metric()
         if len(self._ingredient_per_allergen) == len(self._choices):
             return self.validate_chosen_allergens()
         entry = self._choices[len(self._ingredient_per_allergen)]
@@ -119,6 +128,7 @@ class Data:
             self._ingredient_per_allergen[entry.allergen] = ingredient
             if self._solve():
                 return True
+            self._failed_solves += 1
             # else - backtrack...
             del self._allergen_per_ingredient[ingredient]
             del self._ingredient_per_allergen[entry.allergen]
@@ -131,11 +141,22 @@ class Data:
         for allergen, possible_ingredients in self.possible_ingredients_set_per_allergen.items():
             entry = IngredientPerAllergenEntry(allergen=allergen, possible_ingredients=list(possible_ingredients))
             self._choices.append(entry)
+        self._choices.sort(key=lambda c: len(c.possible_ingredients))
+        self._failed_solves = 0
+        self._t = time.time()
+
+    def _time_metric(self):
+        t = time.time()
+        dur = t - self._t
+        if dur > 30:
+            print(f"failed _solves for last {dur}s: {self._failed_solves}")
+            self._failed_solves = 0
+            self._t = t
 
 
 def main():
     data = Data()
-    with open("data_small.txt") as f:
+    with open("data.txt") as f:
         for i, line in enumerate(f):
             entry = FoodEntry.from_string(line.strip())
             data.add_entry(entry)
