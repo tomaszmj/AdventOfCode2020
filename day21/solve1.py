@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Set, Dict, NamedTuple, List
+from collections import defaultdict
 import time
 
 
@@ -34,9 +35,11 @@ class IngredientPerAllergenEntry(NamedTuple):
 class Data:
     def __init__(self):
         self.entries = []  # const after all add_entry calls
-        self.possible_allergens_set_per_ingredient: Dict[str, Set[str]] = {}  # const after all add_entry calls
+        self.possible_allergens_set_per_ingredient: Dict[str, Set[str]] = defaultdict(set)  # const after all add_entry calls
         self.possible_ingredients_set_per_allergen: Dict[str, Set[str]] = {}  # const after all add_entry calls
         self._all_ingredients_set: Set[str] = set()  # const after all add_entry calls
+        self._all_ingredients_matching_any_allergen: Set[str] = set()  # const after _initialize_internals
+        self._entries_per_ingredient: Dict[str, List[int]] = defaultdict(list)  # const after all add_entry calls
         self._choices: List[IngredientPerAllergenEntry] = []  # const after _initialize_internals
         self._allergen_per_ingredient: Dict[str, str] = {}  # variable used in _solve
         self._ingredient_per_allergen: Dict[str, str] = {}  # variable used in _solve
@@ -47,15 +50,15 @@ class Data:
         self.entries.append(entry)
         self._all_ingredients_set.update(entry.ingredients)
         for ingredient in entry.ingredients:
-            if ingredient not in self.possible_allergens_set_per_ingredient:
-                self.possible_allergens_set_per_ingredient[ingredient] = set()
+            self._entries_per_ingredient[ingredient].append(len(self.entries) - 1)
             self.possible_allergens_set_per_ingredient[ingredient].update(entry.allergens)
         for allergen in entry.allergens:
-            if allergen not in self.possible_ingredients_set_per_allergen:
-                self.possible_ingredients_set_per_allergen[allergen] = set()
-            self.possible_ingredients_set_per_allergen[allergen].update(entry.ingredients)
+            if allergen in self.possible_ingredients_set_per_allergen:
+                self.possible_ingredients_set_per_allergen[allergen].intersection_update(set(entry.ingredients))
+            else:
+                self.possible_ingredients_set_per_allergen[allergen] = set(entry.ingredients)
 
-    def validate_chosen_allergens(self) -> bool:
+    def validate(self) -> bool:
         for i, entry in enumerate(self.entries):
             allergens = set()
             for ingredient in entry.ingredients:
@@ -70,8 +73,28 @@ class Data:
                     return False
         return True
 
+    def partial_validate(self, entry_index: int) -> bool:
+        entry = self.entries[entry_index]
+        allergens = set()
+        for ingredient in entry.ingredients:
+            allergen = self._allergen_per_ingredient.get(ingredient, "")
+            if not allergen:
+                continue
+            if allergen in allergens:
+                return False  # allergens cannot repeat
+            allergens.add(allergen)
+        missing_allergens = 0
+        for expected_allergen in entry.allergens:
+            if expected_allergen not in allergens:
+                missing_allergens += 1
+        max_missing_allergens = len(entry.ingredients) - len(allergens)
+        retval = bool(missing_allergens <= max_missing_allergens)
+        # print(f"partial_validate: {retval}")
+        return retval
+
     def solve(self):
         self._initialize_internals()
+        print(self.possible_choices_to_str())
         print(f"staring solve with {len(self.possible_allergens_set_per_ingredient)} ingredients and "
               f"{len(self.possible_ingredients_set_per_allergen)} allergens, choices:\n"
               f"{self.possible_ingredients_per_allergen_to_str()}")
@@ -119,15 +142,16 @@ class Data:
     def _solve(self) -> bool:
         self._time_metric()
         if len(self._ingredient_per_allergen) == len(self._choices):
-            return self.validate_chosen_allergens()
+            return self.validate()
         entry = self._choices[len(self._ingredient_per_allergen)]
         for ingredient in entry.possible_ingredients:
             if ingredient in self._allergen_per_ingredient:
                 continue
             self._allergen_per_ingredient[ingredient] = entry.allergen
             self._ingredient_per_allergen[entry.allergen] = ingredient
-            if self._solve():
-                return True
+            if all((self.partial_validate(i) for i in self._entries_per_ingredient[ingredient])):
+                if self._solve():
+                    return True
             self._failed_solves += 1
             # else - backtrack...
             del self._allergen_per_ingredient[ingredient]
@@ -139,9 +163,11 @@ class Data:
         self._ingredient_per_allergen: Dict[str, str] = {}
         self._choices = []
         for allergen, possible_ingredients in self.possible_ingredients_set_per_allergen.items():
+            self._all_ingredients_matching_any_allergen.update(possible_ingredients)
             entry = IngredientPerAllergenEntry(allergen=allergen, possible_ingredients=list(possible_ingredients))
             self._choices.append(entry)
         self._choices.sort(key=lambda c: len(c.possible_ingredients))
+        print(f"ingredients matching: {len(self._all_ingredients_matching_any_allergen)} / {len(self._all_ingredients_set)}")
         self._failed_solves = 0
         self._t = time.time()
 
