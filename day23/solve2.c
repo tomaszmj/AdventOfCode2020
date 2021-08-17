@@ -36,16 +36,16 @@ int main(int argc, char **argv) {
     if (!parse_input(argc, argv, &input)) {
         return -1;
     }
-    printf("Running with: data %s (len %d), total_len %d, iterations %d\n",
+    printf("Running with: data %s (len %u), total_len %u, iterations %u\n",
             argv[1], input.data_len, input.total_len, input.iterations);
     int *followers = init_followers(&input);
     if (followers == NULL) {
         return -1;
     }
-    //print_followers(followers, input.total_len);
+    print_followers(followers, input.total_len);
     play(followers, input.total_len, input.data[0], input.iterations);
-    print_all_elements(followers, input.total_len, 1, "");
-    //printf("puzzle answer 2: %d\n", puzzle_answer2(followers));
+    print_all_elements(followers, input.total_len, 1, " ");
+    printf("puzzle answer 2: %u\n", puzzle_answer2(followers));
     free(followers);
     return 0;
 }
@@ -72,17 +72,17 @@ int parse_input(int argc, char **argv, InputData *in) {
     for (i = 0; data[i] != '\0'; i++) {
         char c = data[i];
         if (!isdigit(c) || c == '0') {
-            printf("invalid character %c at index %d in input string %s - exptected only non-zero digits\n", c, i, data);
+            printf("invalid character %c at index %u in input string %s - exptected only non-zero digits\n", c, i, data);
             return 0;
         }
         for (int j = 0; j < i; j++) {
             if (data[j] == c) {
-                printf("input characters in data cannot repeat, got %c at index %d and %d\n", c, j, i);
+                printf("input characters in data cannot repeat, got %c at index %u and %u\n", c, j, i);
                 return 0;
             }
         }
         if (i > MAX_INITIAL_DATA_LEN) { // sanity check, it should not happen because we check that digits do not repeat
-            printf("too long data string, max len is %d\n", MAX_INITIAL_DATA_LEN);
+            printf("too long data string, max len is %u\n", MAX_INITIAL_DATA_LEN);
             return 0;
         }
         int d = c - '0'; // hacky conversion from digit to int by subtracting ASCII code
@@ -95,7 +95,7 @@ int parse_input(int argc, char **argv, InputData *in) {
         in->data[i] = d;
     }
     if (min_data != 1 || max_data != i) {
-        printf("invalid data, expected natural numbers from 1 to data_len (%d), got min %d, max %d, data %s\n",
+        printf("invalid data, expected natural numbers from 1 to data_len (%u), got min %d, max %d, data %s\n",
                i, min_data, max_data, data); 
         return 0;
     }
@@ -194,7 +194,7 @@ uint32_t puzzle_answer2(uint32_t followers[]) {
 
 uint32_t select_destination(uint32_t current_item, int total_len, uint32_t picked[PICKED_LEN]) {
     int x = current_item - 1;
-    if (x == 0) {
+    if (x <= 0) {
         x = total_len;
     }
     for (;;) {
@@ -208,7 +208,8 @@ uint32_t select_destination(uint32_t current_item, int total_len, uint32_t picke
         if (valid) {
             return x;
         }
-        if (--x == 0) {
+        x -= 1;
+        if (x == 0) {
             x = total_len;
         }
     }
