@@ -24,11 +24,12 @@ uint32_t* init_followers(InputData *in);
 // functions for changing followers state according to the game rules
 void play(uint32_t followers[], int total_len, uint32_t current_item, int iterations);
 uint32_t select_destination(uint32_t current_item, int total_len, uint32_t picked[PICKED_LEN]);
+int x_in_picked(uint32_t x, uint32_t picked[PICKED_LEN]);
 
 // functions for shownig output
 void print_followers(uint32_t followers[], int total_len);
-void print_all_elements(uint32_t followers[], int total_len, int start, char *sep);
-uint32_t puzzle_answer2(uint32_t followers[]);
+void print_all_elements(uint32_t followers[], int total_len, int start);
+uint64_t puzzle_answer2(uint32_t followers[]);
 
 
 int main(int argc, char **argv) {
@@ -37,15 +38,19 @@ int main(int argc, char **argv) {
         return -1;
     }
     printf("Running with: data %s (len %u), total_len %u, iterations %u\n",
-            argv[1], input.data_len, input.total_len, input.iterations);
+           argv[1], input.data_len, input.total_len, input.iterations);
     int *followers = init_followers(&input);
     if (followers == NULL) {
         return -1;
     }
-    print_followers(followers, input.total_len);
+    if (input.total_len < 100) {
+        print_followers(followers, input.total_len);
+    }
     play(followers, input.total_len, input.data[0], input.iterations);
-    print_all_elements(followers, input.total_len, 1, " ");
-    printf("puzzle answer 2: %u\n", puzzle_answer2(followers));
+    if (input.total_len < 100) {
+        print_all_elements(followers, input.total_len, 1);
+    }
+    printf("%lu\n", puzzle_answer2(followers));
     free(followers);
     return 0;
 }
@@ -61,7 +66,7 @@ int parse_input(int argc, char **argv, InputData *in) {
         return 0;
     }
     in->iterations = atoi(argv[3]);
-    if (in->iterations <= 0) {
+    if (in->iterations < 0) {
         printf("invalid iterations (argv[3]) %s\n", argv[3]);
         return 0;
     }
@@ -167,8 +172,8 @@ void print_followers(uint32_t followers[], int total_len) {
     printf("\n");
 }
 
-void print_all_elements(uint32_t followers[], int total_len, int start, char *sep) {
-    printf("all elements: ");
+void print_all_elements(uint32_t followers[], int total_len, int start) {
+    printf("all elements:");
     int i = 0;
     int max_i = total_len - 1;
     uint32_t curr = start;
@@ -177,7 +182,7 @@ void print_all_elements(uint32_t followers[], int total_len, int start, char *se
             printf("\nWARNING looping through followers stopped because reached max len (%d)", max_i);
             return;
         }
-        printf("%d%s", curr, sep);
+        printf(" %d", curr);
         curr = followers[curr];
         if (curr == start) {
             printf("\n");
@@ -186,10 +191,10 @@ void print_all_elements(uint32_t followers[], int total_len, int start, char *se
     }
 }
 
-uint32_t puzzle_answer2(uint32_t followers[]) {
+uint64_t puzzle_answer2(uint32_t followers[]) {
     uint32_t after1 = followers[1];
     uint32_t afterafter1 = followers[after1];
-    return after1 * afterafter1;
+    return (uint64_t)after1 * (uint64_t)afterafter1;
 }
 
 uint32_t select_destination(uint32_t current_item, int total_len, uint32_t picked[PICKED_LEN]) {
@@ -198,19 +203,20 @@ uint32_t select_destination(uint32_t current_item, int total_len, uint32_t picke
         x = total_len;
     }
     for (;;) {
-        int valid = 1;
-        for (int j = 0; j < PICKED_LEN; j++) {
-            if (x == picked[j]) {
-                valid = 0;
-                break;
-            }
-        }
-        if (valid) {
+        if (!x_in_picked(x, picked)) {
             return x;
         }
-        x -= 1;
-        if (x == 0) {
+        if (--x == 0) {
             x = total_len;
         }
     }
+}
+
+int x_in_picked(uint32_t x, uint32_t picked[PICKED_LEN]) {
+    for (int j = 0; j < PICKED_LEN; j++) {
+        if (x == picked[j]) {
+            return 1;
+        }
+    }
+    return 0;
 }
