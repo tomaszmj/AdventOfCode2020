@@ -1,3 +1,23 @@
+/*
+I wrote all solutions in Python, mostly because it is very convenient to parse input data there and there
+are useful built-it data structures, like dicts. However for day23, part2 I decided to make an experiment
+and implement that in C as well. This is because Python solution was quite slow and solution was so simple
+that it could be implemented easily using pure C arrays. The most cumbersome part of C implementation was
+parsing input data (becuase there are no easy-to-use built in tools for that). I could just hardcode data
+in the code, but I wanted to provided it at runtime to make sure that the compiler cannot make any
+optimisation based on the hardcoded arguments.
+
+Of course, first I checked that both solutions produce the same results:
+for initial data 716892543, total data len 1000000 and iterations 10000000 the result is 538935646702.
+
+The difference in execution time is overwhelming:
+- Python solution - about 14s on my computer,
+- C solution - about 0.6s on my computer.
+It is expected, I guess that the main reason for such huge difference is that the core of the algorithm -
+"followers" list in Python is probably some list of pointers to dynamically resolved Python objects, while
+in C this is a raw list of tightly packed integers. Referencing Python list requires more operations
+and results in more cache misses than C list.
+*/
 #include <stdio.h>
 #include <stdlib.h> 
 #include <string.h>
@@ -26,7 +46,7 @@ void play(uint32_t followers[], int total_len, uint32_t current_item, int iterat
 uint32_t select_destination(uint32_t current_item, int total_len, uint32_t picked[PICKED_LEN]);
 int x_in_picked(uint32_t x, uint32_t picked[PICKED_LEN]);
 
-// functions for shownig output
+// functions for showing output
 void print_followers(uint32_t followers[], int total_len);
 void print_all_elements(uint32_t followers[], int total_len, int start);
 uint64_t puzzle_answer2(uint32_t followers[]);
