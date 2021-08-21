@@ -60,38 +60,35 @@ def count_black_neighbours(black_tiles: Set[Tuple[int, int]], coords: Tuple[int,
     return count
 
 
-class Border:
+# Space of tiles is infinite. Tiles by default are white.
+# In tiles_game_of_life something may change in a tile if
+# it is black or if it has black neighbours.
+# SpaceChecker determines what tiles have to be checked.
+# Previously it determined range [min_x, max_x] and [min_y, max_y]
+# according to description below DIRECTIONS, but this approach is simpler.
+class SpaceChecker:
     def __init__(self) -> None:
-        self.min = [0, 0]
-        self.max = [-1, -1]  # space is from min to max (inclusive), min < max indicates 0 size - similar idea as in day17
+        self.to_check: Set[Tuple[int, int]] = set()
 
     def update(self, position: Tuple[int, int]):
-        self.min[0] = min(position[0], self.min[0])
-        self.min[1] = min(position[1], self.min[1])
-        self.max[0] = max(position[0], self.max[0])
-        self.max[1] = max(position[1], self.max[1])
+        self.to_check.add(position)
+        for dx, dy in DIRECTIONS.values():
+            x = position[0] + dx
+            y = position[1] + dy
+            self.to_check.add((x, y))
 
-    def all_elements_with_margin(self) -> Iterable[Tuple[int, int]]:
-        # extend range by 1 in both directions to include potential new tiles below / above
-        for y in range(self.min[1] - 1, self.max[1] + 2):
-            mod = y % 2
-            # Extend range by 2 in both directions to include potential new tiles left / right
-            # (by 2 because of how x coordinates are laid out - see comment below DIRECTIONS)
-            # Maybe we are including some redundant elements here, but that's not a problem -
-            # iterating them all does not hurt correctness (only performance a bit), because space is infinite.
-            for x in range(self.min[0] - 2, self.max[0] + 3):
-                if x % 2 == mod:
-                    yield (x, y)
+    def all_elements_to_check(self) -> Iterable[Tuple[int, int]]:
+        return self.to_check
 
 
 def tiles_game_of_life(black_tiles: Set[Tuple[int, int]], iterations: int) -> Set[Tuple[int, int]]:
-    border = Border()
+    space = SpaceChecker()
     for position in black_tiles:
-        border.update(position)
+        space.update(position)
     for i in range(iterations):
         new_black_tiles = set()
-        new_border = Border()
-        for position in border.all_elements_with_margin():
+        new_space = SpaceChecker()
+        for position in space.all_elements_to_check():
             neighbours = count_black_neighbours(black_tiles, position)
             if position in black_tiles:  # tile under position is black
                 # Any black tile with zero or more than 2 black tiles immediately adjacent to it is flipped to white.
@@ -99,19 +96,19 @@ def tiles_game_of_life(black_tiles: Set[Tuple[int, int]], iterations: int) -> Se
                     pass  # tile changes to white (we write only black ones)
                 else:
                     new_black_tiles.add(position)  # tile remains black
-                    new_border.update(position)
+                    new_space.update(position)
             else:  # tile under position is white
                 # Any white tile with exactly 2 black tiles immediately adjacent to it is flipped to black.
                 if neighbours == 2:
                     new_black_tiles.add(position)  # write new black tile
-                    new_border.update(position)
+                    new_space.update(position)
                 else:
                     pass  # tile remains white (we write only black ones)
         # print(f"Day {i+1}: black tiles {len(new_black_tiles)}, " +
         #       f"x range {new_border.min[0]}:{new_border.max[0]}, " + 
         #       f"y range {new_border.min[1]}:{new_border.max[1]}"
         #     )
-        border = new_border
+        space = new_space
         black_tiles = new_black_tiles
     return black_tiles
     
@@ -119,7 +116,7 @@ def tiles_game_of_life(black_tiles: Set[Tuple[int, int]], iterations: int) -> Se
 
 def main():
     black_tiles: Set[Tuple[int, int]] = set()
-    with open("data_small.txt") as f:
+    with open("data.txt") as f:
         for line in f:
             x, y = 0, 0
             text = line.strip()
