@@ -1,2 +1,2 @@
 all:
-	gcc solve2.c -o ~/bin/solve2
+	gcc solve2.c -O3 -o /tmp/solve2
