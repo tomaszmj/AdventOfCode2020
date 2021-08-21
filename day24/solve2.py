@@ -88,44 +88,38 @@ def tiles_game_of_life(black_tiles: Set[Tuple[int, int]], iterations: int) -> Se
     border = Border()
     for position in black_tiles:
         border.update(position)
-    tlist = [black_tiles.copy(), set()]
     for i in range(iterations):
-        src = tlist[i%2]
-        dst = tlist[(i+1)%2]
+        new_black_tiles = set()
         new_border = Border()
         for position in border.all_elements_with_margin():
-            neighbours = count_black_neighbours(src, position)
-            if position in src:  # tile under position is black
+            neighbours = count_black_neighbours(black_tiles, position)
+            if position in black_tiles:  # tile under position is black
                 # Any black tile with zero or more than 2 black tiles immediately adjacent to it is flipped to white.
                 if neighbours == 0 or neighbours > 2:
-                    dst.discard(position)  # tile changes to white (discard to override content from previous iterations if needed)
+                    pass  # tile changes to white (we write only black ones)
                 else:
-                    dst.add(position)  # tile remains black
+                    new_black_tiles.add(position)  # tile remains black
                     new_border.update(position)
             else:  # tile under position is white
                 # Any white tile with exactly 2 black tiles immediately adjacent to it is flipped to black.
                 if neighbours == 2:
-                    dst.add(position)  # write new black tile
+                    new_black_tiles.add(position)  # write new black tile
                     new_border.update(position)
                 else:
-                    dst.discard(position)  # tile remains white (discard to override content from previous iterations if needed)
-        border = new_border
-        # print(f"Day {i+1}: black tiles {len(dst)}, " +
+                    pass  # tile remains white (we write only black ones)
+        # print(f"Day {i+1}: black tiles {len(new_black_tiles)}, " +
         #       f"x range {new_border.min[0]}:{new_border.max[0]}, " + 
         #       f"y range {new_border.min[1]}:{new_border.max[1]}"
         #     )
-    return tlist[(iterations - 1 + 1) % 2]  # return dst from last iteration
+        border = new_border
+        black_tiles = new_black_tiles
+    return black_tiles
     
 
 
-# Note: in puzzle description for example data (data_small.txt) there is an answer not matching what my code produces:
-# after 100 days: 2208, in my code it is 2136 (the first 9 days are the same, difference is from day 10: my 39, example 37).
-# The program works for full dataset - it produced correct answer 3964.
-# I spent some time debugging if there is a bug here despite correct answer, but I could not find one.
-# Still I am not sure if there was a bug in the example answer or if my solution does not work for some corner cases.
 def main():
     black_tiles: Set[Tuple[int, int]] = set()
-    with open("data.txt") as f:
+    with open("data_small.txt") as f:
         for line in f:
             x, y = 0, 0
             text = line.strip()
